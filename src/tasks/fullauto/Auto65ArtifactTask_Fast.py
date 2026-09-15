@@ -26,10 +26,6 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.group_icon = FluentIcon.CAFE
 
         self.setup_commission_config()
-        substrings_to_remove = ["轮次"]
-        keys_to_delete = [key for key in self.default_config for sub in substrings_to_remove if sub in key]
-        for key in keys_to_delete:
-            self.default_config.pop(key, None)
 
         self.action_timeout = 10
 
@@ -128,97 +124,17 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
 
     def walk_to_aim(self, delay=0):
         """
-        从起点走到目标位置的路径
-        路径参考: EMT中的扼守-30or65.json，使用复位
+        从起点走到目标位置的路径：向前走 9.5 秒
         """
         logger.info("开始移动到目标位置")
         move_start = time.time()
 
         try:
-            # ===== 根据扼守-30or65.json录制的路径 =====
-
-            # 0.52s: 开始向前移动
-            self.send_key_down("lalt")
-
+            # 向前走 9.5 秒
             self.sleep(delay)
             self.send_key_down("w")
-
-            # 1.11s: 开始冲刺 (0.59s后)
-            self.sleep(0.59)
-            self.send_key_down(self.get_dodge_key())
-
-            # 1.33s: 向左移动 (0.22s后)
-            self.sleep(0.22)
-            self.send_key_down("a")
-
-            # 2.41s: 停止前进 (1.08s后)
-            self.sleep(1.08)
+            self.sleep(9.5)
             self.send_key_up("w")
-
-            # 3.85s: 再次向前 (1.44s后)
-            self.sleep(1.44)
-            self.send_key_down("w")
-
-            # 3.94s: 停止向左 (0.09s后)
-            self.sleep(0.09)
-            self.send_key_up("a")
-
-            # 4.84s: 再次向左 (0.90s后)
-            self.sleep(0.90)
-            self.send_key_down("a")
-
-            # 5.22s-7.82s: Shift连续切换 (可能在调整位置)
-            self.sleep(0.38)
-            self.send_key_up(self.get_dodge_key())
-            self.sleep(0.24)
-            self.send_key(self.get_dodge_key(), down_time=0.35)
-            self.sleep(0.79)
-            self.send_key(self.get_dodge_key(), down_time=0.41)
-            self.sleep(0.80)
-            self.send_key_down(self.get_dodge_key())
-
-            # 9.09s: 停止前进 (1.27s后)
-            self.sleep(1.27)
-            self.send_key_up("w")
-
-            # 9.56s: 短暂前进 (0.47s后)
-            self.sleep(0.47)
-            self.send_key_down("w")
-
-            # 9.91s: 停止前进 (0.35s后)
-            self.sleep(0.35)
-            self.send_key_up("w")
-
-            # 10.70s: 跳跃 (0.79s后)
-            self.sleep(0.79)
-            self.send_key("space", down_time=0.09)
-
-            # 12.83s: 短暂后退调整 (2.04s后)
-            self.sleep(2.04)
-            self.send_key("s", down_time=0.09)
-
-            # 13.32s: 短暂前进调整 (0.40s后)
-            self.sleep(0.40)
-            self.send_key("w", down_time=0.10)
-
-            # 13.86s: 再次短暂后退 (0.44s后)
-            self.sleep(0.44)
-            self.send_key("s", down_time=0.10)
-
-            # 18.89s-18.99s: 释放所有移动键 (4.93s后)
-            self.sleep(4.93)
-            self.send_key_up(self.get_dodge_key())
-            self.sleep(0.10)
-            self.send_key_up("a")
-
-            self.send_key_up("lalt")
-            # 19.97s: 复位并传送到目标位置
-            if not self.reset_and_transport():
-                logger.info("复位失败，重开任务...")
-                self.give_up_mission()
-                return
-
-            # ===== 路径编写结束 =====
 
             elapsed = time.time() - move_start
             logger.info(f"移动完成，用时 {elapsed:.1f}秒")
@@ -235,4 +151,4 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             self.send_key_up("s")
             self.send_key_up("d")
             self.send_key_up(self.get_dodge_key())
-            self.send_key_up("lalt")
+            self.send_key_up("lshift")

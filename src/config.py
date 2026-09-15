@@ -148,13 +148,9 @@ config = {
         "min_height": 450,
     },
     "supported_resolution": {
-        "ratio": "16:9",  # 支持的游戏分辨率
-        "min_size": (1600, 900),  # 支持的最低游戏分辨率
-        "resize_to": [
-            (2560, 1440),
-            (1920, 1080),
-            (1600, 900),
-        ],  # 可选, 如果非16:9自动缩放为 resize_to
+        "ratio": None,
+        "min_size": None,
+        "resize_to": None,
     },
     "links": {  # 关于里显示的链接, 可选
         "default": {

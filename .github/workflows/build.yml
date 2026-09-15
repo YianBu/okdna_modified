@@ -24,10 +24,6 @@ jobs:
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           git config --global core.autocrlf false
           git config --global core.eol lf
-          git config --global user.email "110257560+BnanZ0@users.noreply.github.com"
-          git config --global user.name "RU"
-          echo "action_state=yellow" >> $env:GITHUB_ENV
-          echo "${{ env.action_state }}"
 
       - uses: actions/checkout@v4
         with:
@@ -53,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system -r requirements.txt
 
-      - name: inline_ok_requirements #把ok-script加入源码, 从requirements.txt中删除以提高升级更新速度
+      - name: inline_ok_requirements
         run: |
           python -m ok.update.inline_ok_requirements --tag ${{ github.ref_name }}
 
@@ -64,18 +60,6 @@ jobs:
               python -m unittest $_.FullName
           }
 
-      - name: Sync Repositories # 同步部分代码(deploy.txt中), 合并tag中间更新日志, 到更新库, 以减少用户更新使用的git库大小
-        id: sync   # Give the step an ID to access its outputs
-        uses: ok-oldking/partial-sync-repo@master # Replace with your action path
-        with:
-          repos: |
-            https://BnanZ0:${{ secrets.OK_GH }}@github.com/BnanZ0/ok-dna-update.git
-            https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/BnanZ0/ok-duet-night-abyss.git
-          sync_list: 'deploy.txt'
-          tag: ${{ github.ref_name }}
-          gitignore_file: '.update_repo_gitignore'
-          show_author: true #在更新日志中加入作者
-
       - name: Build with PyAppify Action
         id: build-app
         uses: ok-oldking/pyappify-action@master #使用pyappify打包exe
@@ -83,7 +67,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           build_exe_only: false
-          # 使用上一个稳定版本的 Release 来获取已打包的启动器，从而跳过耗时的打包过程
+          # 复用作者已打包好的启动器，跳过耗时打包；如需完全自建可删掉这一行
           use_release: https://api.github.com/repos/BnanZ0/ok-duet-night-abyss/releases/tags/v1.6.0
 
       - name: Release
@@ -93,25 +77,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           body: |
-            ###  更新日志 ${{ steps.sync.outputs.start_tag }} -> ${{ steps.sync.outputs.end_tag }}:
-              ${{ steps.sync.outputs.changes_with_asterisk }}
             ### 下载包说明
-              * [ok-dna-win32-China-setup.exe](https://github.com/BnanZ0/ok-duet-night-abyss/releases/download/${{ github.ref_name }}/ok-dna-win32-China-setup.exe) 完整安装包, 更新使用阿里云+腾讯CNB.
-              * [ok-dna-win32-online-setup.exe](https://github.com/BnanZ0/ok-duet-night-abyss/releases/download/${{ github.ref_name }}/ok-dna-win32-online-setup.exe) 在线安装包, 在线白嫖的服务器不一定稳定, 建议优先使用完整包. 
-              * [ok-dna-win32-Global-setup.exe](https://github.com/BnanZ0/ok-duet-night-abyss/releases/download/${{ github.ref_name }}/ok-dna-win32-Global-setup.exe) full package with dependencies, using GitHub and PyPi as update source 
-              * 不要下载ok-dna-win32.zip,和SourceCode.zip, Do Not Download the SourceCode, ok-dna-win32.zip            
-            ### 如果无法下载或下载慢, 可以使用其他下载源
-              * [夸克网盘](https://pan.quark.cn/s/a1052cec4d13) 免费, 需注册账号
+              * [ok-dna-win32-China-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-China-setup.exe) 完整安装包
+              * [ok-dna-win32-Global-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-Global-setup.exe) 完整安装包（Global）
           draft: false
           prerelease: false
           make_latest: true
           files: pyappify_dist/*
-
-      # - name: Trigger MirrorChyanUploading
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   shell: bash
-      #   run: |
-      #     gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan_uploading
-      #     gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan_release_note
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

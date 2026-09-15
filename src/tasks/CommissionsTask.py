@@ -245,7 +245,8 @@ class CommissionsTask(BaseDNATask):
         start = time.time()
         while time.time() - start < time_out:
             self.send_key("esc")
-            if self.wait_until(self.find_esc_menu, time_out=2, raise_if_not_found=False):
+            # 云游戏/动画期间菜单可能慢一两秒才出来，单次等待给 3 秒，避免误判后反复按 ESC 把菜单又关掉
+            if self.wait_until(self.find_esc_menu, time_out=3, raise_if_not_found=False):
                 found = True
                 break
         else:
@@ -323,18 +324,17 @@ class CommissionsTask(BaseDNATask):
                 raise_if_not_found=True,
             )
             self.sleep(0.5)
-            # 「放弃挑战」有二次确认弹窗，点弹出的「确定」直到它消失
-            confirmed = {}
-
+            # 「放弃挑战」二次确认：判据命中就点判据框，判据失效（新版 UI 换皮/换位）时兜底点固定坐标，
+            # 一直点到回到开始界面为止，避免判据失效时死等 60 秒导致超时后无法重开
             def _click_giveup_confirm():
-                confirmed['box'] = self.find_center_confirm(threshold=0.9)
-                self._click_detected(confirmed.get('box'), name="giveup_confirm")
+                if not self._click_detected(self.find_center_confirm(threshold=0.9), name="giveup_confirm"):
+                    self.click_ui_coord(COORD.RESET_TRANSPORT_OK, name="giveup_confirm_fixed", after_sleep=0.25)
 
             self.wait_until(
-                condition=lambda: not self.find_center_confirm(threshold=0.9),
+                condition=is_mission_start_iface,
                 post_action=_click_giveup_confirm,
                 time_out=action_timeout,
-                raise_if_not_found=True,
+                raise_if_not_found=False,
             )
             self.sleep(0.5)
 
@@ -589,7 +589,13 @@ class CommissionsTask(BaseDNATask):
     def get_round_info(self):
         """获取并更新当前轮次信息。"""
         if self.in_team():
+            self._round_counted = False
             return
+        # 行动抉择弹窗会连续多帧命中，若每帧都计数会导致「打完1波就算成2波」。
+        # 回到局内时在 handle_mission_interface 里复位，弹窗期间只计一次。
+        if getattr(self, "_round_counted", False):
+            return
+        self._round_counted = True
         box = self.box_of_screen(0.241, 0.361, 0.259, 0.394, name="green_mark", hcenter=True)
         self.wait_until(lambda: self.calculate_color_percentage(green_mark_color, box) > 0.135, time_out=1)
         round_info_box = self.screen_box('ROUND_INFO_OCR')
@@ -602,13 +608,18 @@ class CommissionsTask(BaseDNATask):
 
         prev_round = self.current_round
         new_round_from_ocr = None
-        if texts and texts[0].name.isdigit():
-            new_round_from_ocr = int(texts[0].name)
-            self.log_debug(f"get_round_info ocr 轮次 {new_round_from_ocr}")
+        if texts:
+            m = re.search(r'\d+', texts[0].name)
+            if m:
+                new_round_from_ocr = int(m.group())
+                self.log_debug(f"get_round_info ocr 轮次 {new_round_from_ocr}")
 
-        if new_round_from_ocr is not None:
+        # 只采信"正好等于上一轮+1"的 OCR 结果：游戏更新后 HUD 轮次区域可能变动，
+        # OCR 会读到空或读到等级等无关数字。旧逻辑要么首轮不计数（卡住无法继续），
+        # 要么读到无关数字直接超过「轮次」导致提前结束。这里以轮次递增为准。
+        if new_round_from_ocr == prev_round + 1:
             self.current_round = new_round_from_ocr
-        elif self.current_round != 0:  # OCR失败，但之前已有轮次记录，则递增
+        else:
             self.current_round += 1
 
         if prev_round != self.current_round:
@@ -653,6 +664,7 @@ class CommissionsTask(BaseDNATask):
     def handle_mission_interface(self, stop_func=lambda: False):
         """每步操作后重新看画面：匹配到哪个元素，就执行哪一段逻辑（优先级从高到低）。"""
         if self.in_team():
+            self._round_counted = False
             return False
 
         self.check_for_monthly_card()
@@ -700,8 +712,9 @@ class CommissionsTask(BaseDNATask):
         return ret
 
     def reset_and_transport(self):
-        # 1) 打开局内菜单(ESC 菜单)
-        self.open_in_mission_menu()
+        # 1) 打开局内菜单(ESC 菜单)；找不到就返回 False，让调用方放弃并重开，而不是抛异常停任务
+        if not self.open_in_mission_menu(raise_if_not_found=False):
+            return False
         self.wait_until(
             condition=lambda: not self.find_esc_menu(),
             # 2) 点击"设置"入口, 点击后应关闭 ESC 菜单
@@ -711,7 +724,9 @@ class CommissionsTask(BaseDNATask):
         # 搜索框取顶部页签栏中段，要包住「其他」页签的标注
         setting_box = self.screen_box('SETTING_OTHER_TAB')
         setting_other = self.wait_until(lambda: self.find_one("setting_other", box=setting_box), time_out=10,
-                                        raise_if_not_found=True)
+                                        raise_if_not_found=False)
+        if setting_other is None:
+            return False
         # 云游戏局内打开菜单必然卡一下
         self.sleep(0.5)
         self.wait_until(
