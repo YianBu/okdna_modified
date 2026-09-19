@@ -90,6 +90,36 @@ class CommissionsTask(BaseDNATask):
             "options": ["开局重置角色位置", "开局向前走", "自动前进到开战"],
         }
 
+    def setup_combat_detection_config(self):
+        """「战斗侦测」开关（有战斗判据的半自动任务共用）。
+
+        开（默认）：等各任务的战斗判据成立才按技能 —— 和以前完全一样。
+        关：只要在局内（且没停在菜单/确认弹窗上）就按技能。
+        """
+        self.default_config.update({
+            "战斗侦测": True,
+        })
+        self.config_description.update({
+            "战斗侦测": "如果某些特殊模式技能释放异常 尝试关掉",
+        })
+
+    def combat_detection_enabled(self) -> bool:
+        return bool(self.config.get("战斗侦测", True))
+
+    def skills_ready(self, in_combat: bool) -> bool:
+        """现在能不能按技能。
+
+        开「战斗侦测」时只认战斗判据，和改动前逐字等价（不做多余检测）；
+        关「战斗侦测」时不再等判据，只要在局内、没停在 ESC 菜单或确认弹窗上就按。
+        """
+        if in_combat:
+            return True
+        if self.combat_detection_enabled():
+            return False
+        if not self.in_team():
+            return False
+        return not (self.find_esc_menu() or self.find_reset_confirm())
+
     def is_in_combat(self):
         """进入战斗的判据：任务信息栏出现波次「x/y」。
 
@@ -173,8 +203,25 @@ class CommissionsTask(BaseDNATask):
         return self.find_ui(Ui.ACTION_DIALOG_RETREAT, threshold=threshold)
 
     def find_action_dialog_continue(self, threshold=0):
-        """行动抉择弹窗的「继续挑战」（原 find_ingame_continue_btn）。"""
+        """行动抉择弹窗的「继续挑战」——两套任意一套命中都算（原 find_ingame_continue_btn）。"""
+        return (self.find_action_dialog_continue_normal(threshold=threshold)
+                or self.find_action_dialog_continue2(threshold=threshold))
+
+    def find_action_dialog_continue_normal(self, threshold=0):
+        """常规布局（探险 / 扼守 / 密函）的「继续挑战」。"""
         return self.find_ui(Ui.ACTION_DIALOG_CONTINUE, threshold=threshold)
+
+    def find_action_dialog_continue2(self, threshold=0):
+        """灾厄模式那套「继续挑战」：弹窗比常规布局上移 59px。
+
+        单独一条标注是为了版本更新后方便核对 UI 变化。
+        """
+        return self.find_ui(Ui.ACTION_DIALOG_CONTINUE_2, threshold=threshold)
+
+    def click_action_dialog_continue(self, name="continue_mission", after_sleep=0.25) -> None:
+        """点「继续挑战」：检测到哪一套就点哪一套的坐标。"""
+        coord = COORD.ACTION_CONTINUE_2 if self.find_action_dialog_continue2() else COORD.ACTION_CONTINUE
+        self.click_ui_coord(coord, name=name, after_sleep=after_sleep)
 
     def find_start_btn(self, threshold=0, box=None, template=None):
         """开始界面的「开始」按钮（新版只有一个位置，不再分 bottom/big）。"""
@@ -346,7 +393,7 @@ class CommissionsTask(BaseDNATask):
         action_timeout = self.action_timeout if timeout == 0 else timeout
         self.wait_until(
             condition=lambda: not self.find_action_dialog_continue() and not self.find_action_dialog_retreat(),
-            post_action=lambda: self.click_ui_coord(COORD.ACTION_CONTINUE, name="continue_mission", after_sleep=0.25),
+            post_action=self.click_action_dialog_continue,
             time_out=action_timeout,
             raise_if_not_found=True,
         )
