@@ -22,13 +22,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for workflow in "Build" "Build Launcher"; do
-            ids=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --limit 100 --json databaseId,headBranch --jq '.[] | select(.headBranch == "v1.0.0") | .databaseId')
-            for id in $ids; do
-              gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
-            done
-          done
-
+          gh api --method POST "/repos/$GITHUB_REPOSITORY/actions/runs/36153850219/cancel" || true
+          gh api --method POST "/repos/$GITHUB_REPOSITORY/actions/runs/36152827799/cancel" || true
       - name: Delete mistaken v1.0.0 release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
