@@ -22,9 +22,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 --json databaseId,headBranch --jq '.[] | select(.headBranch == "v1.0.0") | .databaseId')
-          for id in $ids; do
-            gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+          for workflow in "Build" "Build Launcher"; do
+            ids=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --limit 100 --json databaseId,headBranch --jq '.[] | select(.headBranch == "v1.0.0") | .databaseId')
+            for id in $ids; do
+              gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+            done
           done
 
       - name: Delete mistaken v1.0.0 release
