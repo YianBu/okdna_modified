@@ -70,8 +70,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           build_exe_only: false
-          # 复用原版已打包好的 Launcher，应用自身仍从 pyappify.yml 的 git_url 更新
-          use_release: https://api.github.com/repos/BnanZ0/ok-duet-night-abyss/releases/tags/v1.6.0
+          # 由于产品名改为 ok-dna-mod，必须自行编译 Launcher，避免复用原版 ok-dna 安装标识
 
       - name: Release
         uses: softprops/action-gh-release@v2
