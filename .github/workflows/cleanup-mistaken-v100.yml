@@ -6,6 +6,7 @@ on:
       - '.github/workflows/cleanup-mistaken-v100.yml'
   workflow_run:
     workflows:
+      - Build
       - Build Launcher
     types: [requested, in_progress, completed]
 
@@ -21,7 +22,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "Build Launcher" --limit 100 --json databaseId,headBranch --jq '.[] | select(.headBranch == "v1.0.0") | .databaseId')
+          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 --json databaseId,headBranch --jq '.[] | select(.headBranch == "v1.0.0") | .databaseId')
           for id in $ids; do
             gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
           done
