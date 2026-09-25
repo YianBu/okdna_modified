@@ -204,6 +204,7 @@ config = {
         ["src.tasks.config.CommissionConfig", "CommissionConfig"],
         ["src.tasks.config.CommissionSkillConfig", "CommissionSkillConfig"],
         ["src.tasks.fullauto.AutoFishTask", "AutoFishTask"],
+        ["src.tasks.fullauto.AutoFishTask_Leisure", "AutoFishTask_Leisure"],
         ["src.tasks.fullauto.AutoExploration_Fast", "AutoExploration_Fast"],
         ["src.tasks.fullauto.Auto65ArtifactTask_Fast", "Auto65ArtifactTask_Fast"],
         ["src.tasks.fullauto.ImportTask", "ImportTask"],
