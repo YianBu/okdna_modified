@@ -1,0 +1,33 @@
+name: Cleanup mistaken v1.0.0 release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-mistaken-v100.yml'
+  workflow_run:
+    workflows:
+      - Build Launcher
+    types: [requested, in_progress, completed]
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel v1.0.0 builds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "Build Launcher" --limit 100 --json databaseId,headBranch --jq '.[] | select(.headBranch == "v1.0.0") | .databaseId')
+          for id in $ids; do
+            gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+          done
+
+      - name: Delete mistaken v1.0.0 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete v1.0.0 --repo "$GITHUB_REPOSITORY" --yes || true
