@@ -10,8 +10,3 @@ profiles:
     use_pythonw: true
     pip_args: "--no-deps"
     show_add_defender: true
-
-  - name: "Global"
-    git_url: "https://github.com/YianBu/okdna_modified.git"
-    main_script: "main.py"
-    requirements: "requirements.txt"

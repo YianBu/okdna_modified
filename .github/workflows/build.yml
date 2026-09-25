@@ -79,16 +79,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           body: |
-            ## ok-dna-mod Launcher
+            ## ok-dna-mod 完整安装包
 
-            推荐普通用户下载：
+            * [ok-dna-mod-win32-China-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-mod-win32-China-setup.exe) - 完整安装包
 
-            * [ok-dna-mod-win32-China-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-mod-win32-China-setup.exe) - 国内网络优先，完整安装包
-            * [ok-dna-mod-win32-Global-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-mod-win32-Global-setup.exe) - 海外网络，完整安装包
-            * [ok-dna-mod-win32-online-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-mod-win32-online-setup.exe) - 体积较小，但首次运行依赖网络
-
-            下载安装包后双击安装。安装完成后，Launcher 会从 `pyappify.yml` 配置的仓库检查并拉取更新，不需要每次重新下载安装包。
+            下载后双击运行，按照安装器提示完成安装即可。
           draft: false
           prerelease: false
           make_latest: true
-          files: pyappify_dist/*
+          files: pyappify_dist/ok-dna-mod-win32-China-setup.exe
