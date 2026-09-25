@@ -650,36 +650,21 @@ class BaseDNATask(BaseTask):
         self.genshin_interaction.move_mouse_relative(int(dx), int(dy))
 
     def try_bring_to_front(self):
-        if self.hwnd.is_foreground():
-            return
-        try:
-            # 用 AttachThreadInput 绕过 Windows 前台锁定，不模拟任何按键
-            # （原来模拟 Alt/Win，keyup 一旦丢失系统里这两个键就会卡住）
-            import win32gui
-            import win32process
-            fg = win32gui.GetForegroundWindow()
-            cur_thread = win32api.GetCurrentThreadId()
-            target_thread = 0
-            attached = False
-            if fg:
-                target_thread = win32process.GetWindowThreadProcessId(fg)[0]
-                if target_thread and target_thread != cur_thread:
-                    try:
-                        win32process.AttachThreadInput(cur_thread, target_thread, True)
-                        attached = True
-                    except Exception:
-                        attached = False
+        if not self.hwnd.is_foreground():
+            def key_press(key, after_sleep=0):
+                win32api.keybd_event(key, 0, 0, 0)
+                win32api.keybd_event(key, 0, win32con.KEYEVENTF_KEYUP, 0)
+                self.sleep(after_sleep)
+
+            key_press(win32con.VK_MENU)
             try:
                 self.hwnd.bring_to_front()
-            finally:
-                if attached:
-                    try:
-                        win32process.AttachThreadInput(cur_thread, target_thread, False)
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning(f"try_bring_to_front failed: {e}")
-        self.sleep(0.5)
+            except Exception:
+                key_press(win32con.VK_LWIN, 0.1)
+                key_press(win32con.VK_LWIN, 0.1)
+                key_press(win32con.VK_MENU)
+                self.hwnd.bring_to_front()
+            self.sleep(0.5)
         
     def setup_fidget_action(self):
         if not self.enable_fidget_action:
