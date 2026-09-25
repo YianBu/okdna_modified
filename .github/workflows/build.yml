@@ -1,8 +1,7 @@
-name: Build
+name: Build Launcher
 
 on:
   push:
-    # Sequence of patterns matched against refs/tags
     tags:
       - 'v*'
 
@@ -37,6 +36,7 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Set UTF-8 encoding
         run: |
           set PYTHONIOENCODING=utf-8
@@ -65,12 +65,12 @@ jobs:
 
       - name: Build with PyAppify Action
         id: build-app
-        uses: ok-oldking/pyappify-action@master #使用pyappify打包exe
+        uses: ok-oldking/pyappify-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           build_exe_only: false
-          # 复用作者已打包好的启动器，跳过耗时打包；如需完全自建可删掉这一行
+          # 复用原版已打包好的 Launcher，应用自身仍从 pyappify.yml 的 git_url 更新
           use_release: https://api.github.com/repos/BnanZ0/ok-duet-night-abyss/releases/tags/v1.6.0
 
       - name: Release
@@ -80,9 +80,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           body: |
-            ### 下载包说明
-              * [ok-dna-win32-China-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-China-setup.exe) 完整安装包
-              * [ok-dna-win32-Global-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-Global-setup.exe) 完整安装包（Global）
+            ## ok-dna Launcher
+
+            推荐普通用户下载：
+
+            * [ok-dna-win32-China-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-China-setup.exe) - 国内网络优先，完整安装包
+            * [ok-dna-win32-Global-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-Global-setup.exe) - 海外网络，完整安装包
+            * [ok-dna-win32-online-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ok-dna-win32-online-setup.exe) - 体积较小，但首次运行依赖网络
+
+            下载安装包后双击安装。安装完成后，Launcher 会从 `pyappify.yml` 配置的仓库检查并拉取更新，不需要每次重新下载安装包。
           draft: false
           prerelease: false
           make_latest: true
