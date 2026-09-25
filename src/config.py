@@ -154,12 +154,12 @@ config = {
     },
     "links": {  # 关于里显示的链接, 可选
         "default": {
-            "github": "https://github.com/BnanZ0/ok-duet-night-abyss",
+            "github": "https://github.com/YianBu/okdna_modified",
             "sponsor": "https://ko-fi.com/bnanz",
             "qq_group": "https://qm.qq.com/q/iF3bfUflY",
             "qq_channel": "https://pd.qq.com/s/djmm6l44y",
             "discord": "https://discord.gg/vVyCatEBgA",
-            "faq": "https://cnb.cool/BnanZ0/ok-duet-night-abyss/-/blob/master/README.md",
+            "faq": "https://github.com/YianBu/okdna_modified",
         }
     },
     "about": """
@@ -179,7 +179,7 @@ config = {
         </p>
     """,
     "screenshots_folder": "screenshots",  # 截图存放目录, 每次重新启动会清空目录
-    "gui_title": "ok-dna",  # Optional
+    "gui_title": "ok-dna-mod",  # Optional
     "template_matching": {
         "coco_feature_json": os.path.join(
             "assets", "coco_annotations.json"
@@ -228,9 +228,4 @@ config = {
         ["src.tasks.trigger.AutoRogueDialogTask", "AutoRogueDialogTask"],
     ],
     "scene": ["src.scene.DNAScene", "DNAScene"],
-    "update_pyappify": {
-        "to_version": "1.2.3",
-        "zip_url": "https://github.com/BnanZ0/ok-duet-night-abyss/releases/tag/v1.6.0/ok-dna-win32.zip",
-        "sha256": "689e7ff6f6120a966f4830f520fb6a294828acaeeb9d7d0214606a5732f4783c",
-    },
 }
