@@ -70,7 +70,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           build_exe_only: false
-          # 由于产品名改为 ok-dna-mod，必须自行编译 Launcher，避免复用原版 ok-dna 安装标识
+          # 复用已编译的独立 Launcher，跳过耗时最长的 Rust/Tauri 编译
+          use_release: https://api.github.com/repos/${{ github.repository }}/releases/396779682
 
       - name: Release
         uses: softprops/action-gh-release@v2
