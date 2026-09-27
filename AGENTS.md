@@ -19,3 +19,10 @@
   `ok.mo`。`.mo` 只写有译文的条目（zh_CN 的 `msgstr` 惯例留空、回落到中文原文），
   en_US 另外存一份把 msgid 里空格去掉的副本。
 
+## 版本与发布
+
+- 本仓库的版本号（`v1.0.x`）与上游完全独立，不要拿上游的 tag 做比较或参考。
+- 发布 = 打 `v*` tag 推到 `mine`：CI 按 tag 改写 `src/config.py` 的 version 并发布
+  release，Launcher 用户就是靠这个 tag 才拿得到更新的。
+- 永远不要 `git push mine --tags`：本地残留着上游的 `v1.6.x` 等标签，全推上去会让
+  Launcher 把 `v1.6.5` 当成「新版本」推给用户。
