@@ -599,3 +599,27 @@ msgstr ""
 
 msgid "原地不动"
 msgstr ""
+
+msgid "自动迷津"
+msgstr ""
+
+msgid "使用角色"
+msgstr ""
+
+msgid "止流"
+msgstr ""
+
+msgid "选择角色后按该角色的手法释放技能，不走全局技能计时器"
+msgstr ""
+
+msgid "伊薇"
+msgstr ""
+
+msgid "自定义"
+msgstr ""
+
+msgid "自定义序列"
+msgstr ""
+
+msgid "每一步写成「技能:等待秒数」，逗号分隔。例：长按战技:1, 战技:1, 终结技:1"
+msgstr ""

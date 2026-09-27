@@ -602,3 +602,27 @@ msgstr "If skills are not released properly in some special modes, try turning t
 
 msgid "原地不动"
 msgstr "Stay in place"
+
+msgid "自动迷津"
+msgstr "Auto Labyrinth"
+
+msgid "使用角色"
+msgstr "Use Character"
+
+msgid "止流"
+msgstr "Zhiliu"
+
+msgid "选择角色后按该角色的手法释放技能，不走全局技能计时器"
+msgstr "Cast skills with the selected character's own rotation instead of the global skill ticker"
+
+msgid "伊薇"
+msgstr "Eve"
+
+msgid "自定义"
+msgstr "Custom"
+
+msgid "自定义序列"
+msgstr "Custom Sequence"
+
+msgid "每一步写成「技能:等待秒数」，逗号分隔。例：长按战技:1, 战技:1, 终结技:1"
+msgstr "Each step is skill:wait-seconds, comma separated. Example: 长按战技:1, 战技:1, 终结技:1"

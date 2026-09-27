@@ -602,3 +602,27 @@ msgstr "Si las habilidades no se liberan bien en algunos modos especiales, prueb
 
 msgid "原地不动"
 msgstr "Permanecer en el sitio"
+
+msgid "自动迷津"
+msgstr "Laberinto automático"
+
+msgid "使用角色"
+msgstr "Usar personaje"
+
+msgid "止流"
+msgstr "Zhiliu"
+
+msgid "选择角色后按该角色的手法释放技能，不走全局技能计时器"
+msgstr "Lanza habilidades con la rotación propia del personaje seleccionado en lugar del temporizador global"
+
+msgid "伊薇"
+msgstr "Eve"
+
+msgid "自定义"
+msgstr "Personalizado"
+
+msgid "自定义序列"
+msgstr "Secuencia personalizada"
+
+msgid "每一步写成「技能:等待秒数」，逗号分隔。例：长按战技:1, 战技:1, 终结技:1"
+msgstr "Cada paso es habilidad:segundos, separado por comas. Ejemplo: 长按战技:1, 战技:1, 终结技:1"

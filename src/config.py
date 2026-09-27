@@ -206,6 +206,7 @@ config = {
         ["src.tasks.fullauto.AutoFishTask_Leisure", "AutoFishTask_Leisure"],
         ["src.tasks.fullauto.Auto65ArtifactTask_Fast", "Auto65ArtifactTask_Fast"],
         ["src.tasks.AutoExpulsion", "AutoExpulsion"],
+        ["src.tasks.fullauto.AutoMijinTask", "AutoMijinTask"],
         ["src.tasks.fullauto.AutoTheatreTask", "AutoTheatreTask"],
         ["src.tasks.fullauto.AutoFishTask", "AutoFishTask"],
         ["src.tasks.fullauto.AutoExploration_Fast", "AutoExploration_Fast"],
