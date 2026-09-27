@@ -602,3 +602,6 @@ msgstr "Detección de combate"
 
 msgid "如果某些特殊模式技能释放异常 尝试关掉"
 msgstr "Si las habilidades no se liberan bien en algunos modos especiales, prueba a desactivarlo"
+
+msgid "原地不动"
+msgstr "Permanecer en el sitio"

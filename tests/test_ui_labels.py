@@ -414,14 +414,15 @@ class TestUiLabels(TaskTestCase):
     # ---- 开局处理（挂机模式）：每次进局内一次，且被录制走位驱动时整段跳过 ----
 
     def test_move_on_begin(self):
-        """钉死开局处理的四套判据。
+        """钉死开局处理的五套判据。
 
         1) 默认配置「开局重置角色位置」-> 调一次复位并补 0.5s 的 w 防卡墙
-        2) 「开局向前走 N 秒」-> 只按一次 w，时长就是配置值
-        3) 「自动前进到开战」-> 按住 w 前进到 is_in_combat() 为真为止，命中后还要
+        2) 「原地不动」-> 什么都不做，只把开局标记打上
+        3) 「开局向前走 N 秒」-> 只按一次 w，时长就是配置值
+        4) 「自动前进到开战」-> 按住 w 前进到 is_in_combat() 为真为止，命中后还要
            再走 AUTO_ADVANCE_EXTRA_TIME 秒才松手；一直不进战斗就走满
            AUTO_ADVANCE_TIME_OUT 秒并放弃重开，返回 False 让调用方跳过局内逻辑
-        4) 被注入录制走位（`external_movement` 换掉）-> 整段跳过。
+        5) 被注入录制走位（`external_movement` 换掉）-> 整段跳过。
            这条是"全自动执行逻辑完全不受影响"的保证：此时起点由录制路线决定，
            开局前进 / 复位传送会把路线起点带偏。
         """
@@ -472,6 +473,7 @@ class TestUiLabels(TaskTestCase):
             commissions_module.time = fake_time_module
             self.assertEqual(run_case('开局重置角色位置', 0),
                              (['reset', 'w(0.5)'], True), '复位模式应复位并补 0.5s 防卡墙')
+            self.assertEqual(run_case('原地不动', 0), ([], True), '原地不动不该有任何动作')
             self.assertEqual(run_case('开局向前走', 2.5), (['w(2.5)'], True),
                              '向前走模式应只按一次 w')
             self.assertEqual(run_case('开局向前走', 0), ([], True), '向前走 0 秒应什么都不做')

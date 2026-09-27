@@ -87,7 +87,7 @@ class CommissionsTask(BaseDNATask):
         })
         self.config_type["挂机模式"] = {
             "type": "drop_down",
-            "options": ["开局重置角色位置", "开局向前走", "自动前进到开战"],
+            "options": ["开局重置角色位置", "原地不动", "开局向前走", "自动前进到开战"],
         }
 
     def setup_combat_detection_config(self):
@@ -163,7 +163,7 @@ class CommissionsTask(BaseDNATask):
         return False
 
     def move_on_begin(self):
-        """开局处理：复位角色位置 / 向前走几秒 / 前进到进入战斗。每次进局内只做一次。
+        """开局处理：复位角色位置 / 原地不动 / 向前走几秒 / 前进到进入战斗。每次进局内只做一次。
 
         返回 False 表示这次没能开局成功（已经放弃并退出副本），调用方不要继续
         跑局内逻辑。被全自动任务注入录制走位时整段跳过 —— 那时起点由录制路线
@@ -175,7 +175,7 @@ class CommissionsTask(BaseDNATask):
         return self.apply_afk_mode()
 
     def apply_afk_mode(self):
-        """按「挂机模式」配置处理角色当前的位置：复位角色 / 向前走几秒 / 前进到开战。
+        """按「挂机模式」配置处理角色当前的位置：复位角色 / 原地不动 / 向前走几秒 / 前进到开战。
 
         原本只是 `move_on_begin()` 的开局处理，抽出来是因为沉浸式戏剧要在"层间切换"时再跑
         一次同样的处理 —— 那边由任务自己调用，不走 `move_on_begin` 的一次性开关。
@@ -187,6 +187,9 @@ class CommissionsTask(BaseDNATask):
                 return False
             # 防卡墙
             self.send_key("w", down_time=0.5)
+        elif mode == "原地不动":
+            # 不碰角色位置：留在出生点，交给「随机游走 / 技能」逻辑接管
+            return True
         elif mode == "开局向前走":
             if (walk_sec := self.config.get("开局向前走", 0)) > 0:
                 self.send_key("w", down_time=walk_sec)

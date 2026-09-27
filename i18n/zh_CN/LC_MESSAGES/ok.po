@@ -599,3 +599,6 @@ msgstr ""
 
 msgid "如果某些特殊模式技能释放异常 尝试关掉"
 msgstr ""
+
+msgid "原地不动"
+msgstr ""
