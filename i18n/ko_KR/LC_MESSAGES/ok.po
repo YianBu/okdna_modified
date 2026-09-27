@@ -258,9 +258,6 @@ msgstr "시작 시 앞으로 이동"
 msgid "开局向前走几秒"
 msgstr "시작 시 몇 초 동안 앞으로 이동할지"
 
-msgid "开局重置角色位置"
-msgstr "시작 시 캐릭터 위치 재설정"
-
 msgid "弹出通知"
 msgstr "팝업 알림"
 

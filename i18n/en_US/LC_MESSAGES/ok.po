@@ -258,9 +258,6 @@ msgstr "Move forward at the start"
 msgid "开局向前走几秒"
 msgstr "How many seconds to move forward at the start"
 
-msgid "开局重置角色位置"
-msgstr "Reset character position at the start"
-
 msgid "弹出通知"
 msgstr "Pop-up Notification"
 

@@ -258,9 +258,6 @@ msgstr "Avanzar al inicio"
 msgid "开局向前走几秒"
 msgstr "Cuántos segundos avanzar al inicio"
 
-msgid "开局重置角色位置"
-msgstr "Restablecer la posición del personaje al inicio"
-
 msgid "弹出通知"
 msgstr "Notificación emergente"
 

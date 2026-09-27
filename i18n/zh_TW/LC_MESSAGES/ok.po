@@ -258,9 +258,6 @@ msgstr "開局向前走"
 msgid "开局向前走几秒"
 msgstr "開局向前走幾秒"
 
-msgid "开局重置角色位置"
-msgstr "開局重置角色位置"
-
 msgid "弹出通知"
 msgstr "彈出通知"
 

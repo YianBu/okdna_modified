@@ -741,30 +741,20 @@ class TestTheatreTask(TaskTestCase):
         self.assertIn('挂机模式', config)
         self.assertIn('开局向前走', config)
         self.assertEqual(self.task.config_type['挂机模式']['options'],
-                         ['开局重置角色位置', '原地不动', '开局向前走', '自动前进到开战'])
+                         ['原地不动', '开局向前走', '自动前进到开战'])
         self.assertIn('是否在任务中随机移动', self.task.config_description['随机游走'])
         self.assertIn('开局向前走几秒', self.task.config_description['开局向前走'])
 
     def test_apply_afk_mode_dispatch(self):
-        """四种挂机模式各自的动作：复位角色(+防卡墙) / 原地不动 / 向前走 N 秒 / 前进到开战。
-
-        复位失败（`reset_and_transport()` 返回 False）要把 False 传出去，
-        不能让上层以为开局成功 —— 那时人已经不在队伍界面了。
-        """
+        """三种挂机模式各自的动作：原地不动 / 向前走 N 秒 / 前进到开战。"""
         task = self.task
         original = {name: getattr(task, name) for name in
-                    ('config', 'reset_and_transport', 'send_key', 'advance_until_combat')}
+                    ('config', 'send_key', 'advance_until_combat')}
         keys = []
         try:
-            task.reset_and_transport = lambda: keys.append('reset') or True
             task.send_key = lambda key, **kw: keys.append(f'{key} {kw.get("down_time")}')
             task.advance_until_combat = lambda: keys.append('advance')
 
-            task.config = {'挂机模式': '开局重置角色位置'}
-            self.assertTrue(task.apply_afk_mode())
-            self.assertEqual(keys, ['reset', 'w 0.5'], '复位角色之后要防卡墙往前走一点')
-
-            keys.clear()
             task.config = {'挂机模式': '原地不动'}
             self.assertTrue(task.apply_afk_mode())
             self.assertEqual(keys, [], '原地不动不该碰角色位置')
