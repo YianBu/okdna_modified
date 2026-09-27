@@ -70,8 +70,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           build_exe_only: false
-          # 复用已编译的独立 Launcher，跳过耗时最长的 Rust/Tauri 编译
-          use_release: https://api.github.com/repos/${{ github.repository }}/releases/396779682
+          # 复用已编译的独立 Launcher 可以跳过最耗时的 Rust/Tauri 编译，但前提是那个
+          # release 已经公开发布：action 会去下载资产，draft 的 browser_download_url
+          # 取不到（v1.0.2 那次就是这里 404 挂了）。mine 上的 launcher-base-v1.0.1
+          # 目前还是 draft，所以先老老实实自行编译；把它发布出来（或改用已发布的
+          # launcher release）后，把下面这行打开即可：
+          # use_release: https://api.github.com/repos/${{ github.repository }}/releases/tags/launcher-base-v1.0.1
 
       - name: Release
         uses: softprops/action-gh-release@v2
