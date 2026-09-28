@@ -10,6 +10,9 @@
   `git push mine master`。
 - 本地 `master` 仍跟踪 `origin/master`，只为 `git pull` 拉上游更新；仓库已设
   `remote.pushDefault = mine`，所以不带参数的 `git push` 也只会打到 `mine`。
+- 本地 `origin` 另设了 `remote.origin.tagOpt = --no-tags`：`git pull/fetch` 只拉上游的
+  提交，不会把上游那一百多个 tag（`v0.0.x`/`v1.0.x`/`v1.1.x`…`v1.6.x`）抓回本地。
+  这是刻意设的**本地**配置（不改上游任何东西、也不影响推送 tag），不要删。
 
 ## 提交前
 
@@ -29,10 +32,9 @@
 
 - 本仓库的版本号（`v1.0.x`）与上游完全独立，不要拿上游的 tag 做比较或参考。
   本仓库自己的发布序列到目前是 `v1.0.1`、`v1.0.2`、`v1.0.3`（另有 CI 用的
-  `launcher-base-v1.0.1`，在远端，不是版本号）。本地 tag 已经清理过，只剩这三个；
-  但 `git pull` 会把上游的 tag 一起抓回来（`v0.0.x` / `v1.0.4`…`v1.0.76` / `v1.1.x` /
-  `v1.6.x` 等），那些跟本仓库的版本号无关，别照它们编号，看到就本地删掉
-  （`git tag -d <名字>`，只删本地、不要推送）。
+  `launcher-base-v1.0.1`，在远端，不是版本号）。本地 tag 已清理过，只剩这三个，
+  `origin` 也设了 `tagOpt = --no-tags`，所以 `git pull` 不会再带回上游的 tag；
+  万一又看到上游 tag（换了机器、重新克隆等），别照它们编号，本地删掉即可。
 - **「传云」的含义**：用户说「传云」（或「传云 git」「推送更新」）时，默认理解为
   「提交改动 -> 本仓库版本号 +1 打 annotated tag -> 推送」：即
   `git push mine master` 加 `git push mine v1.0.<下一个>`（当前下一个是 `v1.0.4`），
