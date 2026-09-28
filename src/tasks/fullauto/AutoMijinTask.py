@@ -53,6 +53,8 @@ CUSTOM_ACTIONS = {
 COMBAT_LONG_PRESS = 2.0
 # 一轮最多打多久（秒）：超了就主动退本、重开一轮（「超时时间」配置的默认值）
 ROUND_TIMEOUT_SECONDS = 180
+# 进本之后、放技能序列之前先稳这么久：进关动画/落地收尾期间按键会被吃掉
+MISSION_SETTLE = 0.6
 # 角色手法里用到「重击」时的长按秒数（和「全局技能设定」的默认值保持一致）
 HEAVY_ATTACK_HOLD = 1.5
 
@@ -92,7 +94,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     """全自动「迷津」（肉鸽模式）。
 
     一轮的流程（按用户给的实拍图）：
-      模式首页「坠入深渊」-> 难度选择页「开始探索」-> 进本立刻放一次角色技能序列
+      模式首页「坠入深渊」-> 难度选择页「开始探索」-> 进本稳定 0.6 秒后放一次角色技能序列
       -> 道具弹窗点空白处关闭 -> 打完一波按 ESC -> 菜单点「退出结算」
       -> 二次确认点「确定」-> 再点一次空白处关闭 -> 结算页点空白处关闭 -> 回到模式首页
 
@@ -149,6 +151,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.pending_esc = False
         self.round_start_time = 0.0
         self.next_timeout_esc = 0.0
+        self.sequence_settled = False
 
     def run(self):
         DNAOneTimeTask.run(self)
@@ -217,7 +220,16 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             # 配置里的角色名没有对应手法：退回全局技能计时器，保证任务还能跑起来
             self.fallback_skill_tick()
             return
+        self.settle_before_sequence()
         self.run_character_skill()
+
+    def settle_before_sequence(self):
+        """进本后先等 MISSION_SETTLE 秒再放序列（一轮只等一次）。"""
+        if self.sequence_settled:
+            return
+        self.sequence_settled = True
+        self.log_info("进本稳定 %.1f 秒后开始放技能" % MISSION_SETTLE)
+        self.sleep(MISSION_SETTLE)
 
     def round_timeout(self):
         """「超时时间」配置：一轮最多打多少秒。"""
@@ -334,6 +346,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.pending_esc = False
         self.round_start_time = 0.0
         self.next_timeout_esc = 0.0
+        self.sequence_settled = False
         self.step_index = 0
 
     def in_mijin_mission(self):
