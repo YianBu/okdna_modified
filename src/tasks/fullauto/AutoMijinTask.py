@@ -53,8 +53,10 @@ CUSTOM_ACTIONS = {
 COMBAT_LONG_PRESS = 2.0
 # 一轮最多打多久（秒）：超了就主动退本、重开一轮（「超时时间」配置的默认值）
 ROUND_TIMEOUT_SECONDS = 180
-# 进本之后、放技能序列之前先稳这么久：进关动画/落地收尾期间按键会被吃掉
-MISSION_SETTLE = 0.6
+# 进本之后、放技能序列之前先稳多久（默认值，可在「进本等待(秒)」里改）：
+# 进关动画/落地收尾期间按键会被吃掉
+MISSION_SETTLE_DEFAULT = 0.6
+MISSION_SETTLE_KEY = "进本等待(秒)"
 # 角色手法里用到「重击」时的长按秒数（和「全局技能设定」的默认值保持一致）
 HEAVY_ATTACK_HOLD = 1.5
 
@@ -125,6 +127,12 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         # 肉鸽里没有站在原地的空间，去掉「随机游走」这条用不上的配置
         self.default_config.pop("随机游走", None)
         self.config_description.pop("随机游走", None)
+
+        # 进本后等几秒再放技能（进关动画期间按键会被吃掉）
+        self.default_config.update({MISSION_SETTLE_KEY: MISSION_SETTLE_DEFAULT})
+        self.config_description.update({
+            MISSION_SETTLE_KEY: "进本后等几秒再放技能（进关动画期间按键会被吃掉）",
+        })
 
         # 角色手法：每个角色一套自己的技能序列，和「全局技能设定」无关
         self.default_config.update({
@@ -235,13 +243,21 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.settle_before_sequence()
         self.run_character_skill()
 
+    def mission_settle(self):
+        """「进本等待(秒)」配置：进本后等几秒再放技能。"""
+        try:
+            return max(0.0, float(self.config.get(MISSION_SETTLE_KEY, MISSION_SETTLE_DEFAULT)))
+        except (TypeError, ValueError):
+            return MISSION_SETTLE_DEFAULT
+
     def settle_before_sequence(self):
-        """进本后先等 MISSION_SETTLE 秒再放序列（一轮只等一次）。"""
+        """进本后先等「进本等待(秒)」秒再放序列（一轮只等一次）。"""
         if self.sequence_settled:
             return
         self.sequence_settled = True
-        self.log_info("进本稳定 %.1f 秒后开始放技能" % MISSION_SETTLE)
-        self.sleep(MISSION_SETTLE)
+        settle = self.mission_settle()
+        self.log_info("进本稳定 %.1f 秒后开始放技能" % settle)
+        self.sleep(settle)
 
     def round_timeout(self):
         """「超时时间」配置：一轮最多打多少秒。"""
