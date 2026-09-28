@@ -74,6 +74,12 @@ TEXT_CLOSE_HINT = "点击空白处关闭"  # 道具弹窗 / 「确定」之后�
 # 进本画面上也会出现「前往下一层深渊」，所以真正的闸门是下面的
 # WAVE_DONE_MIN_ROUND_SECONDS + 已经放过技能序列（见 wave_done_now）。
 TEXT_WAVE_DONE = ("获得烛芯", "前往下一层深渊")
+# 阵亡界面（中间偏下那颗「复苏」按钮）：出现就说明这一把死了
+TEXT_REVIVE = "复苏"
+# 检测到阵亡后等多久再退本
+REVIVE_EXIT_DELAY = 1.0
+# 结算页的收益列：「时之纺线」这四个字（用它认出结算页，再读它正上方那个数字）
+TEXT_SPINLINE = "时之纺线"
 # 打完一关至少要等进本这么久才认（一波怎么都要打几十秒）：防止进本过渡画面上的
 # 零碎文字触发误判。另外还必须已经进本放过技能序列（sequence_done）。
 WAVE_DONE_MIN_ROUND_SECONDS = 3.0
@@ -86,10 +92,6 @@ LV_MIN_BOTTOM_RATIO = 0.9  # 框底要落在屏高下面 10% 以内
 
 # 整屏 OCR 的节流间隔（秒）：OCR 本身比这慢时以 OCR 为准
 OCR_INTERVAL = 0.5
-# 认不出界面时，隔多久打一次"这一屏都有哪些字"的日志
-UNKNOWN_LOG_INTERVAL = 3.0
-
-
 class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     """全自动「迷津」（肉鸽模式）。
 
@@ -147,14 +149,17 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.screen_boxes = []
         self.screen_texts = []
         self.next_ocr = 0.0
-        self.next_unknown_log = 0.0
         self.pending_esc = False
         self.round_start_time = 0.0
         self.next_timeout_esc = 0.0
         self.sequence_settled = False
+        self.total_spinline = 0
+        self.settlement_counted = False
 
     def run(self):
         DNAOneTimeTask.run(self)
+        # 收益按「一次运行」累计：任务停下来（重新开始）就从 0 起
+        self.total_spinline = 0
         self.move_mouse_to_safe_position(save_current_pos=False)
         self.set_check_monthly_card()
         # 每次开跑重新按当前「使用角色」取序列，改了配置不用重启程序
@@ -166,6 +171,10 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         except Exception as e:
             logger.error("AutoMijinTask error", e)
             raise
+        finally:
+            # 任务停止：收益显示清 0（下次运行重新累计）
+            self.total_spinline = 0
+            self.info_set("累计时之纺线", 0)
 
     def do_run(self):
         """主循环：读一次屏，按当前页面推进；认不出就等下一轮再读。"""
@@ -181,11 +190,15 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
                 self.handle_esc_exit()
             elif self.find_text(TEXT_CONFIRM_TITLE) or self.find_text(TEXT_CONFIRM_HINT):
                 self.handle_exit_confirm()
+            elif self.find_text(TEXT_REVIVE):
+                self.handle_death()
             elif self.wave_done_now():
                 self.handle_wave_cleared()
             elif self.pending_esc:
                 # 「获得烛芯」弹窗刚点掉，补上那一脚 ESC
                 self.press_esc()
+            elif self.find_text(TEXT_SPINLINE):
+                self.handle_settlement()
             elif self.find_text(TEXT_CLOSE_HINT):
                 self.handle_close_popup()
             elif self.round_timed_out():
@@ -193,7 +206,6 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             elif self.in_mijin_mission():
                 self.handle_in_mission()
             else:
-                self.log_unknown_screen()
                 self.sleep(0.3)
             self.sleep(0.1)
 
@@ -294,6 +306,35 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.log_info("点「点击空白处关闭」")
         self.click_text(COORD.MIJIN_CLOSE_POPUP, "mijin_close", TEXT_CLOSE_HINT)
 
+    def handle_death(self):
+        """阵亡：等 REVIVE_EXIT_DELAY 秒后主动退本重开（走和打完一关一样的退出流程）。"""
+        self.log_info("检测到阵亡（复苏界面），%.1f 秒后退本重开" % REVIVE_EXIT_DELAY)
+        self.sleep(REVIVE_EXIT_DELAY)
+        self.press_esc()
+
+    def handle_settlement(self):
+        """结算页：读这次拿到的时之纺线，累加成本次运行的收益，然后点空白处关闭。"""
+        if not self.settlement_counted:
+            self.settlement_counted = True
+            gained = self.read_spinline()
+            if gained is not None:
+                self.total_spinline += gained
+                self.log_info("本轮收益：时之纺线 +%d，本次运行累计 %d"
+                              % (gained, self.total_spinline))
+                self.info_set("累计时之纺线", self.total_spinline)
+            else:
+                self.log_info("结算页没读到「时之纺线」的数字，这一把不计数")
+        self.handle_close_popup()
+
+    def read_spinline(self):
+        """读结算页「时之纺线」那一列的数字；读不到返回 None。"""
+        texts = self.ocr(box=self.screen_box('MIJIN_SPINLINE'), frame=self.frame,
+                         match=re.compile(r"\d+"))
+        if not texts:
+            return None
+        matched = re.search(r"\d+", texts[0].name)
+        return int(matched.group()) if matched else None
+
     def click_text(self, fallback_coord, name, *needles):
         """点 OCR 到的这串文字本身（框内随机点）；没认出来再退回固定坐标。"""
         box = self.find_box(*needles)
@@ -330,15 +371,6 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
                     return box
         return None
 
-    def log_unknown_screen(self):
-        """认不出界面时，节流地把这一屏认到的文字写进日志，方便对着实机排查。"""
-        now = time.time()
-        if now < self.next_unknown_log:
-            return
-        self.next_unknown_log = now + UNKNOWN_LOG_INTERVAL
-        self.log_info("认不出当前界面，这一屏认到的文字: %s"
-                      % (" | ".join(self.screen_texts) if self.screen_texts else "(空)"))
-
     def reset_round_state(self):
         """一轮的状态：开局处理跑过没、技能序列放过没。"""
         self._mission_started = False
@@ -347,6 +379,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.round_start_time = 0.0
         self.next_timeout_esc = 0.0
         self.sequence_settled = False
+        self.settlement_counted = False
         self.step_index = 0
 
     def in_mijin_mission(self):
