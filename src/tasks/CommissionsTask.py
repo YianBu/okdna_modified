@@ -735,7 +735,13 @@ class CommissionsTask(BaseDNATask):
             self.log_info("处理任务界面: 开始任务")
             self.start_mission()
             self.mission_status = Mission.START
-            return
+            # 无尽模式开了游戏内自动确认时，委托手册/密函这些中间弹窗会被游戏秒确认跳过、
+            # 直接进局内（start_mission 就是为此把 in_team() 也算作"已进入下一步"）。那条
+            # 路径上没有后续弹窗来把 Mission.START 交回调用方，do_run 里的 init_all()
+            # （重置轮次计数、技能计时、开局标记）就永远不执行 —— 轮次计数会一直停在上一次
+            # 的值，新开的一局一遇到行动抉择就被判成已经打满而直接撤离，表现就是"结算后
+            # 不会重开新的一轮接着刷"。所以已经在局内时就把状态直接交出去。
+            return Mission.START if self.in_team() else None
         elif self.find_action_dialog_continue() or self.find_action_dialog_retreat():
             if stop_func():
                 self.log_info("处理任务界面: 终止任务")

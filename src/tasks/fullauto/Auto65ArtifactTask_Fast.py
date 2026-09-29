@@ -4,12 +4,19 @@ import win32con
 
 from ok import Logger, TaskDisabledException
 from src.tasks.DNAOneTimeTask import DNAOneTimeTask
-from src.tasks.CommissionsTask import CommissionsTask, Mission
+from src.tasks.CommissionsTask import CommissionsTask, Mission, AUTO_ADVANCE_TIME_OUT
 from src.tasks.BaseCombatTask import BaseCombatTask
 
 from src.tasks.AutoDefence import AutoDefence
 
 logger = Logger.get_logger(__name__)
+
+# 开局走位：按住 W 一直走到开战（目标栏出现保护目标的波次计数），再往前走
+# WALK_EXTRA_TIME 秒 —— 判据出现时人往往还差一点才真正走进交战区。
+# 走满 WALK_TIME_OUT 秒还没开战就松手，交给 handle_mission_start 里那段
+# 「等待战斗开始」超时去放弃重开，而不是无限往前走。
+WALK_EXTRA_TIME = 1.0
+WALK_TIME_OUT = AUTO_ADVANCE_TIME_OUT
 
 
 class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
@@ -28,6 +35,8 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.setup_commission_config()
 
         self.action_timeout = 10
+        # 走位时借「自动扼守」的开战判据（见 _combat_started）
+        self._mission_task = None
 
     def run(self):
         """主运行方法"""
@@ -36,6 +45,7 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.set_check_monthly_card()
         try:
             _to_do_task = self.get_task_by_class(AutoDefence)
+            self._mission_task = _to_do_task
             _to_do_task.config_external_movement(self.walk_to_aim, self.config)
             original_info_set = _to_do_task.info_set
             _to_do_task.info_set = self.info_set
@@ -122,23 +132,35 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     #         # 短暂休眠
     #         self.sleep(0.2)
 
+    def _combat_started(self):
+        """走位的开战判据：借「自动扼守」那份判据（左侧目标栏出现「保护…波次 x/y」），
+        保证走位收尾和外层开战判定用的是同一套逻辑。"""
+        return self._mission_task is not None and self._mission_task.is_in_combat()
+
     def walk_to_aim(self, delay=0):
-        """
-        从起点走到目标位置的路径：向前走 9.5 秒
+        """开局走位：走到开战，再多走 WALK_EXTRA_TIME 秒。
+
+        原来写死「按住 W 走 9.5 秒」，不同防御副本的走位距离、刷怪时机都不一样：
+        走早了站在原地等，走晚了冲过交战区。改成用开战判据收尾。
         """
         logger.info("开始移动到目标位置")
         move_start = time.time()
-
+        self.sleep(delay)
+        self.send_key_down("w")
         try:
-            # 向前走 9.5 秒
-            self.sleep(delay)
-            self.send_key_down("w")
-            self.sleep(9.5)
-            self.send_key_up("w")
-
-            elapsed = time.time() - move_start
-            logger.info(f"移动完成，用时 {elapsed:.1f}秒")
-
+            deadline = time.time() + WALK_TIME_OUT
+            while time.time() < deadline:
+                self.next_frame()
+                if self._combat_started():
+                    self.log_info(f"已进入战斗，再前进 {WALK_EXTRA_TIME} 秒")
+                    # 多走这一段时继续取帧，松手时手里的画面是新的
+                    extra_deadline = time.time() + WALK_EXTRA_TIME
+                    while time.time() < extra_deadline:
+                        self.next_frame()
+                    break
+            else:
+                self.log_info(f"前进 {WALK_TIME_OUT} 秒仍未开战，交给超时重开")
+            logger.info(f"移动完成，用时 {time.time() - move_start:.1f}秒")
         except TaskDisabledException:
             raise
         except Exception as e:

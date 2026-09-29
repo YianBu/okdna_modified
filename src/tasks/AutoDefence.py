@@ -1,4 +1,5 @@
 from qfluentwidgets import FluentIcon
+import re
 import time
 from typing import Callable
 
@@ -8,6 +9,10 @@ from src.tasks.BaseCombatTask import BaseCombatTask
 from src.tasks.CommissionsTask import CommissionsTask, Mission, QuickAssistTask, _default_movement
 
 logger = Logger.get_logger(__name__)
+
+# 左侧目标栏「保护XX波次 x/y」那一行：不同防御副本的保护对象、总波次数都不一样，
+# 所以只认「波次 x/y」这个计数本身，不写死名字和数字。
+TARGET_WAVE_PATTERN = re.compile(r"波次\s*\d+\s*/\s*\d+")
 
 
 class AutoDefence(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
@@ -111,6 +116,21 @@ class AutoDefence(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.runtime_state = {"wave_start_time": 0, "wave": -1, "wait_next_wave": False}
         self.reset_wave_info()
 
+    def find_target_wave(self):
+        """左侧目标栏里「保护…波次 x/y」那一行的判据（刚进本时这一行还不存在）。"""
+        return self.ocr(box=self.screen_box('DEFENCE_TARGET_WAVE'), match=TARGET_WAVE_PATTERN)
+
+    def is_in_combat(self):
+        """开战判据：保护目标开始计波次。
+
+        扼守类副本进本时目标栏显示的是「前往目标点」，开战（要保护的目标开始刷波次）
+        之后才换成「保护XX波次0/N」。不同防御副本的保护对象、总波次数都不一样，所以
+        只认「波次 x/y」这个计数；识别不到再退回基类的波次 OCR。
+        """
+        if self.find_target_wave():
+            return True
+        return super().is_in_combat()
+
     def handle_in_mission(self):
         """处理在副本中的逻辑"""
         self.get_wave_info()
@@ -156,7 +176,10 @@ class AutoDefence(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
                 return
             time_out = self.action_timeout + 10
             self.log_info(f"外部移动执行完毕，等待战斗开始，{time_out}秒后超时")
-            if not self.wait_until(lambda: self.current_wave != -1 or self.find_esc_menu(), post_action=self.get_wave_info,
+            # 判据和走位收尾用的是同一个 is_in_combat()：目标栏出现「波次 x/y」也算开战，
+            # 不能只看左边那个波次 OCR（不同副本 HUD 位置不一样，可能一直读不出来）
+            if not self.wait_until(lambda: self.is_in_combat() or self.find_esc_menu(),
+                                   post_action=self.get_wave_info,
                                    time_out=time_out):
                 self.log_info("等待战斗开始超时，重开任务")
                 self.open_in_mission_menu()
