@@ -417,6 +417,9 @@ msgstr ""
 msgid "自动完成密函的对话交互与默认奖励领取"
 msgstr ""
 
+msgid "自动开密函"
+msgstr ""
+
 msgid "自动战斗"
 msgstr ""
 
@@ -629,3 +632,10 @@ msgstr ""
 
 msgid "进本后等几秒再放技能（进关动画期间按键会被吃掉）"
 msgstr ""
+
+msgid "等待刷新"
+msgstr ""
+
+msgid "列表里暂时没有可打的「驱离」时，等它下次刷新后再扫一遍；关掉则直接结束任务"
+msgstr ""
+
