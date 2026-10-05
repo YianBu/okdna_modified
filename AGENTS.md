@@ -46,13 +46,13 @@
 ## 版本与发布
 
 - 本仓库的版本号（`v1.0.x`）与上游完全独立，不要拿上游的 tag 做比较或参考。
-  本仓库自己的发布序列到目前是 `v1.0.1`…`v1.0.7`（另有 CI 用的
+  本仓库自己的发布序列到目前是 `v1.0.1`…`v1.0.8`（另有 CI 用的
   `launcher-base-v1.0.1`，在远端，不是版本号）。本地 tag 已清理过，只剩本仓库自己的 `v1.0.x`，
   `origin` 也设了 `tagOpt = --no-tags`，所以 `git pull` 不会再带回上游的 tag；
   万一又看到上游 tag（换了机器、重新克隆等），别照它们编号，本地删掉即可。
 - **「传云」的含义**：用户说「传云」（或「传云 git」「推送更新」）时，默认理解为
   「提交改动 -> 本仓库版本号 +1 打 annotated tag -> 推送」：即
-  `git push mine master` 加 `git push mine v1.0.<下一个>`（当前下一个是 `v1.0.8`），
+  `git push mine master` 加 `git push mine v1.0.<下一个>`（当前下一个是 `v1.0.9`），
   让 CI 出 release 给 Launcher 用户。**只推这一个 tag，绝不 `--tags`**。
   推完把下一个版本号记住（再次「传云」时就再 +1）。
 - 发布 = 打 `v*` tag 推到 `mine`：CI 按 tag 改写 `src/config.py` 的 version 并发布
