@@ -1,0 +1,91 @@
+"""快捷启动键：按一个键启动 / 停止某个一次性任务（默认 F8 -> 行动逻辑脚本测试）。
+
+为什么不直接用框架自带的 Start/Stop 热键：那套是 RegisterHotKey 的系统级热键，
+只认 F9~F12，而且干的是"暂停 / 恢复执行器"，不是"启动某个任务"；这台机器上它还
+注册失败过（日志里 Failed to register hotkey F9，多半被别的程序占了）。这里改成
+复用 Globals 已有的 pynput 全局键盘监听，按哪个键由**任务自己的配置**决定。
+
+语义只有三条，好记：
+  * 目标任务没在跑 -> 启动它（和界面上点"开始"同一条路 start_controller.start）；
+  * 正在跑的正好是目标任务 -> 停掉它；再按一次就等于重跑，顺便重新读一遍 JSON；
+  * 有别的任务在跑 -> 什么都不做，只记一行日志。
+
+按住键会连发，所以有一秒去抖；这一层只做判断和回调，不碰 Qt / ok，方便单测。
+"""
+
+DEFAULT_KEY = "F8"
+CONFIG_KEY = "快捷启动键"
+DISABLED = "关闭"
+KEY_OPTIONS = (DEFAULT_KEY, "F6", "F7", DISABLED)
+DEBOUNCE_SECONDS = 1.0
+
+_last_press = {"t": 0.0}
+
+
+def reset_debounce():
+    """测试用：把去抖计时清零。"""
+    _last_press["t"] = 0.0
+
+
+def key_name(key):
+    """pynput 的按键对象 -> 'f8' / 'a' 这种小写名字；认不出来返回 None。"""
+    name = getattr(key, "name", None)
+    if name:
+        return str(name).lower()
+    char = getattr(key, "char", None)
+    return str(char).lower() if char else None
+
+
+def hotkey_of(task, default=DEFAULT_KEY):
+    """任务配置里的快捷启动键（小写）；配置成「关闭」/ 空 / 读不到 -> None。"""
+    if task is None:
+        return None
+    try:
+        value = task.config.get(CONFIG_KEY, default)
+    except Exception:
+        value = default
+    value = (value or "").strip()
+    if not value or value == DISABLED:
+        return None
+    return value.lower()
+
+
+def action_for(executor, task):
+    """现在这个键该干什么：start / stop / ignore。"""
+    current = getattr(executor, "current_task", None)
+    if current is None:
+        return "start"
+    if current is task:
+        return "stop"
+    return "ignore"
+
+
+def handle(executor, start_controller, task, key, tell=None, now=None):
+    """处理一次按键，返回做了什么：start / stop / ignore；不是这个键就返回空串。
+
+    tell 是可选的日志回调，签名 tell(message)。
+    """
+    if now is None:
+        import time
+        now = time.time()
+    name = key_name(key)
+    target = hotkey_of(task)
+    if name is None or target is None or name != target:
+        return ""
+    if now - _last_press["t"] < DEBOUNCE_SECONDS:
+        return ""
+    _last_press["t"] = now
+
+    action = action_for(executor, task)
+    name_of_task = getattr(task, "name", getattr(task, "class_name", "任务"))
+    if action == "start":
+        start_controller.start(task)
+        message = f"快捷启动：启动「{name_of_task}」（{target}）"
+    elif action == "stop":
+        executor.stop_current_task()
+        message = f"快捷启动：停止「{name_of_task}」（{target}）"
+    else:
+        message = f"快捷启动：有别的任务在跑，忽略（{target}）"
+    if tell:
+        tell(message)
+    return action

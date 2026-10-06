@@ -218,6 +218,8 @@ config = {
         ["src.tasks.AutoExploration", "AutoExploration"],
         ["src.tasks.AutoExcavation", "AutoExcavation"],
         ["src.tasks.AutoHedge", "AutoHedge"],
+        ["src.tasks.fullauto.AutoDungeonActionTestTask", "AutoDungeonActionTestTask"],
+        ["src.tasks.fullauto.AutoActionLogicScriptTask", "AutoActionLogicScriptTask"],
         ["ok", "DiagnosisTask"],
     ],
     "trigger_tasks": [

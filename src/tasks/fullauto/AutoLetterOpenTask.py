@@ -6,6 +6,12 @@ from ok import Logger, TaskDisabledException
 
 from src.tasks.AutoExpulsion import AutoExpulsion
 from src.tasks.CommissionsTask import Mission
+from src.tasks.fullauto.DungeonActionMixin import DungeonActionMixin
+from src.tasks.fullauto.DungeonActionLogic import (
+    MODE_DEFENCE,
+    MODE_EXPLORATION,
+    mode_of_task_name,
+)
 from src.dna_ui.Defs import COORD, LETTER_BOARD_COLUMN_X
 
 logger = Logger.get_logger(__name__)
@@ -23,13 +29,45 @@ LEVEL_RE = re.compile(r'^l?v?\.?\s*\d+$', re.IGNORECASE)
 # 刷新容错：流程是"先读刷新倒计时 xx分xx秒，再一直跑这段时间，然后回图1 重读"。
 # 实际跑的时长比读到的多 1 分钟（xx+1分xx秒），保证回到图1 时刷新确实发生过、委托已重roll。
 REFRESH_TOLERANCE_SECONDS = 60
+# 「等待刷新」时每轮重新扫列表的间隔（秒）：分段等，别一口气睡到下个刷新
+NO_DRIVE_AWAY_POLL_SECONDS = 10
+# 读不到刷新倒计时时的兜底等待（秒）
+REFRESH_WAIT_FALLBACK_SECONDS = 65
+# 空窗期保活的默认间隔（分钟）：「等待刷新」时每隔这么久点进一个委托再退出来。
+# 云游戏会以"长时间未操作"断会话（实拍弹「连接中断 / 由于您长时间未操作，连接已断开」），
+# 而框架那套鼠标抖动（两三像素的相对位移）平台不认，所以得真点几下。
+# 2026-10-06 那次运行的实测：59 / 48 / 30 分钟的空窗**都活下来了**，只有最后那次
+# 15:01:01 起的那段在 15:01:01~15:30:54 之间断掉（15:01:01 时列表还能正常 OCR，
+# 15:30:54 抓帧才失败）。所以阈值不是固定 30 分钟；那几段活下来的大概率是"人在电脑前"
+# 提供了真实输入。默认取 10 分钟是按最坏情况留余量，代价只是每 10 分钟点两下。
+KEEPALIVE_INTERVAL_MINUTES_DEFAULT = 10
+# 卡住时的提醒间隔（秒）：会话断了之后脚本会一直重试，最多这么久提醒一次，别刷屏
+STUCK_NOTIFY_INTERVAL_SECONDS = 300
 # 图2 里连续这么多秒认不出任何「密函流程界面」，就当这一栏打不下去了（密函开完、
 # 或刷新后当前委托失效），回图1 重新选。
 LETTER_FLOW_STALL_TIME_OUT = 45
 
+# 三种委托混在列表那三栏里，挑的时候按优先级来：驱离 > 探险 > 扼守。
+#   * 驱离：走原来的流程（进本只放技能，不判图不走位）；
+#   * 探险 / 扼守：进本先判地图 + 走位 + 破解（DungeonActionMixin 那套）。
+MODE_DRIVE = "驱离"
+# 挑任务的优先级：驱离 > 探险 > 扼守（三种任务共用列表那三栏）
+TASK_MODES = (MODE_DRIVE, MODE_EXPLORATION, MODE_DEFENCE)
+WALK_MODES = (MODE_EXPLORATION, MODE_DEFENCE)
+# 「进一次本打多少轮」的两个配置（只在对应模式下用），默认都是 20。
+DEFAULT_ROUNDS = 20
+ROUND_CONFIG_KEYS = {MODE_EXPLORATION: "探险轮次", MODE_DEFENCE: "扼守轮次"}
 
-class AutoLetterOpenTask(AutoExpulsion):
-    """全自动「自动开密函」：在委托密函列表里挑「驱离」任务，一直打到不能再打。
+
+class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
+    """全自动「自动开密函」：在委托密函列表里挑任务开密函，一直打到不能再打。
+
+    **看列表上有什么就挑什么，优先级 驱离 > 探险 > 扼守**（三种任务混在那三栏里）：
+
+      * 驱离：进本只放技能（老行为，不判图不走位）；
+      * 探险 / 扼守：进本先判地图、走位、破解机关（DungeonActionMixin 那套），每进一局
+        走一次；进一次本按「探险轮次」/「扼守轮次」打满一轮就撤离到结算界面点「再次进行」
+        重开一局。
 
     图1 = 委托密函列表（角色 / 武器 / 魔之楔 三栏，每栏一行「持有数N」+ 任务槽）；
     图2 = 某个密函任务的开始界面，也就是「自动驱离」平时开工的那个界面。
@@ -57,6 +95,18 @@ class AutoLetterOpenTask(AutoExpulsion):
       —— 最多多打一局；每局本身还有「超时时间」上限兜底。
       至少要已经打过一局才认这个时间，避免单次 OCR 读错就在两屏之间空转。
 
+    不要把游戏丢在界面上一动不动：
+      一局开不起来（start_mission 点不动、"任务无法继续"）时不当成任务结束，而是吞掉它
+      回图1 重选接着跑；「等待刷新」也是分段等（每段 10 秒回主循环重扫一次列表）。
+      任务一旦真的结束，游戏就留在界面上没人管，云游戏那边时间一长会掉线 ——
+      只当用户自己按停止才真的结束（见 recoverable_stop）。
+      空窗期（列表上一直刷不出「驱离」）每隔「空窗保活间隔(分钟)」（默认 10 分钟）点进
+      一个委托再退出来一次：云游戏是按"长时间未操作"断会话的（实拍弹「连接中断：由于您
+      长时间未操作，连接已断开」），框架那套两三像素的鼠标抖动平台不认，得真点几下。
+      实测（2026-10-06）：59 / 48 / 30 分钟的空窗都活下来了，只有一段在 30~59 分钟之间
+      断掉，所以阈值不是固定的 30 分钟；默认 10 分钟是按最坏情况留的余量。
+      保活点进图2 后如果没退回来，_picked_drive_away 会拦住"顺手把随便一个委托开了"。
+
     实现上直接继承 AutoExpulsion：局内的走位/技能/密函选择/密函奖励完全复用，
     这里只加"图1 选任务"和"图1 <-> 图2 的往返判断"。界面判据与坐标见 src/dna_ui/Defs.py。
     """
@@ -71,10 +121,21 @@ class AutoLetterOpenTask(AutoExpulsion):
 
         self.default_config.update({
             "等待刷新": True,
+            "空窗保活间隔(分钟)": KEEPALIVE_INTERVAL_MINUTES_DEFAULT,
+            "探险轮次": DEFAULT_ROUNDS,
+            "扼守轮次": DEFAULT_ROUNDS,
         })
         self.config_description.update({
-            "等待刷新": "列表里暂时没有可打的「驱离」时，等它下次刷新后再扫一遍；关掉则直接结束任务",
+            "等待刷新": "列表里暂时没有可打的任务时，等它下次刷新后再扫一遍；关掉则直接结束任务",
+            "空窗保活间隔(分钟)": "空窗期每隔这么多分钟点进一个委托再退出来，避免云游戏判定"
+                                "「长时间未操作」而断线（实测 30~59 分钟之间会被踢，默认 10 分钟留余量）",
+            "探险轮次": "探险模式下，进一次本打多少轮（默认 20）",
+            "扼守轮次": "扼守模式下，进一次本打多少轮（默认 20）",
         })
+        # 本任务不需要「随机游走 / 挂机模式 / 开局向前走」：驱离进本就原地不动放技能，
+        # 探险/扼守 的走位是固定的录制序列（走完再挂机）。
+        for key in ("随机游走", "挂机模式", "开局向前走"):
+            self.default_config.pop(key, None)
 
         # 有没有真正进过局内 —— 图2 和"打完一局又回到图2"是同一个界面，靠它区分
         self._entered_mission = False
@@ -83,6 +144,21 @@ class AutoLetterOpenTask(AutoExpulsion):
         self._board_cache_time = 0
         # 图1 上读到的刷新时刻（进图2 前先读一次，图2 那串读不到时用它兜底）
         self._board_deadline = None
+        # 「等待刷新」下一次重新读倒计时的时刻（分段等待用）
+        self._next_refresh_check = None
+        # 下一次空窗期保活的时刻（点进一个委托再退出来）
+        self._next_keepalive = 0
+        # 上一次"卡住"提醒的时刻（限频用）
+        self._last_stuck_notify = 0
+        # 是不是本任务自己挑的「驱离」才进的图2 —— 只有它为真才允许在图2 开打，
+        # 免得空窗期保活/误点进图2 之后，脚本顺手把随便一个委托开了
+        self._picked_drive_away = False
+        # 这一把选的是哪种模式（MODE_DRIVE / MODE_EXPLORATION / MODE_DEFENCE）
+        self._dungeon_mode = None
+        # 探险/扼守：这一局有没有走过位（进本第一帧走一次；结算后重开一局会再走）
+        self._walked_this_mission = False
+        # get_round_info 用它给"这一次行动抉择只数一次"去重
+        self._round_counted = False
         # 「自动驱离」在自己 do_run 里初始化这个计数器，这里覆盖了 do_run 就得自己补上，
         # 否则继承来的 handle_in_mission 执行 self.count += 1 时会 AttributeError。
         self.count = 0
@@ -104,6 +180,7 @@ class AutoLetterOpenTask(AutoExpulsion):
             # 图1：列表上就选任务（放在最前面判：万一同位置还有其他按钮也不能抢到这条分支）
             if self.is_letter_board():
                 self._entered_mission = False
+                self._picked_drive_away = False
                 if not self.pick_drive_away():
                     self.handle_no_drive_away()
                 self.sleep(0.2)
@@ -111,6 +188,82 @@ class AutoLetterOpenTask(AutoExpulsion):
 
             self.run_letter_missions()
             self.sleep(0.1)
+
+    # ------------------------------------------------------------------
+    # 进本后：探险 / 扼守 才判图 + 走位；驱离只放技能（保持原行为）
+    # ------------------------------------------------------------------
+    def walk_when_entered(self):
+        """进本第一帧走位：判地图并跑对应的外部行动逻辑，**每次进本只跑一次**。
+
+        只有探险 / 扼守要，驱离直接跳过。开密函这条路径（点开始 -> 选密函 -> 进本）
+        不返回 Mission.START，所以走位挂在进本第一帧；结算后点「再次进行」重开一局会
+        再走一次（见 handle_mission_interface 里的清零）。
+        """
+        if not self.is_walk_mode() or self._walked_this_mission:
+            return
+        self._walked_this_mission = True
+        self.log_info("已进入副本：判地图并执行外部行动逻辑")
+        self.walk_to_aim(delay=2)
+
+    def move_on_begin(self):
+        """进本后原地不动：本任务没有「挂机模式」这种开局处理。
+
+        驱离就是站着放技能；探险/扼守 的走位在 walk_when_entered 里做，和这里无关。
+        """
+        return True
+
+    def handle_in_mission(self):
+        # 回到局内 = 这一波打完了：下一次行动抉择要能再记一轮（同 AutoDefence 每轮清零）。
+        # 不清零的话 get_round_info 会被"这一轮已数过"挡住，轮次永远停在 1。
+        self._round_counted = False
+        self.walk_when_entered()
+        super().handle_in_mission()
+
+    def handle_mission_interface(self, stop_func=lambda: False):
+        if self.is_walk_mode() and self.find_result_again_btn():
+            # 结算界面 = 这一局结束；接下去点「再次进行」是新的一局，要重新判图 + 走位
+            self._walked_this_mission = False
+        return super().handle_mission_interface(stop_func=stop_func)
+
+    def handle_mission_start(self):
+        """任务开始：探险/扼守先判图 + 走位再等开战；驱离沿用原行为（睡 2 秒）。"""
+        if not self.is_walk_mode():
+            return super().handle_mission_start()
+        self.walk_when_entered()
+        if not self.in_team():
+            self.log_info("外部行动后未在副本内（可能已退出），等待重开任务")
+            return
+        time_out = self.action_timeout + 10
+        self.log_info(f"外部行动执行完毕，等待战斗开始，{time_out} 秒后超时")
+        if not self.wait_until(lambda: self.is_in_combat() or self.find_esc_menu(),
+                               post_action=self.get_wave_info, time_out=time_out):
+            self.log_info("等待战斗开始超时，重开任务")
+            self.open_in_mission_menu()
+        else:
+            self.log_info("战斗开始")
+
+    def letter_stop_func(self):
+        """行动抉择弹窗出现时调用：探险/扼守打满本轮次返回 True；驱离永远 False。"""
+        if not self.is_walk_mode():
+            return False
+        self.get_round_info()
+        return self.current_round >= self.rounds_for_mode(self.current_task_mode())
+
+    def finish_letter_round(self):
+        """探险/扼守本内打满一轮：撤离到结算界面、下一局重新判图走位（**不退出到列表**）。
+
+        和「驱离版」一样：主循环接下去会在结算界面点「再次进行」重开一局。真正回列表
+        只发生在：刷新时间到（+1 分钟）、密函开完、或者卡住认不出界面。
+        """
+        rounds = self.rounds_for_mode(self.current_task_mode())
+        self.log_info(f"本内已打满 {rounds} 轮，撤离到结算界面重新开始")
+        self._walked_this_mission = False
+        try:
+            if self.in_team() or self.find_action_dialog_retreat():
+                self.quit_mission()
+        except Exception as e:
+            self.log_info(f"撤离失败（{e}），回列表重新选择")
+            self.leave_letter_start()
 
     def wait_for_start_state(self, time_out=300):
         """等界面处于能开工的状态：图1 列表、图2 开始界面，或结算界面（这一局还没退）。
@@ -132,63 +285,106 @@ class AutoLetterOpenTask(AutoExpulsion):
     # 图2：一直重复打当前这一栏
     # ------------------------------------------------------------------
     def run_letter_missions(self):
-        """在图2 里一直重复打当前这一栏，直到刷新 / 打不下去 / 被游戏踢回列表。"""
+        """在图2 里一直重复打当前这一栏，直到刷新 / 打不下去 / 被游戏踢回列表。
+
+        整个循环体包在 try 里：start_mission 点了开始但界面一直不往前走时会抛
+        TaskDisabledException（"任务无法继续"），那只说明这一局没开成 —— 吞掉它、
+        回列表重选继续跑。任务真结束的代价是游戏被丢在界面上没人管，云游戏会掉线。
+        用户自己按的停止不算在内（见 recoverable_stop）。
+        """
         # 先检测刷新倒计时，再跑这段时间：图2 的倒计时优先（进这一栏时刚读的），
         # 读不到就用点「驱离」前在图1 读到的那个。
-        deadline = self.start_screen_refresh_deadline() or self._board_deadline
+        if not self._picked_drive_away:
+            # 不是本任务挑的「驱离」就进来了（空窗期保活、误点、或启动时本来就停在图2）：
+            # 不要顺手把随便一个委托开了，退回列表重新挑。
+            self.log_info("当前不是自己挑的「驱离」，先退回列表")
+            self.leave_letter_start()
+            return
+        deadline = self.usable_deadline(self.start_screen_refresh_deadline() or self._board_deadline)
         self.log_info("本次预计运行到刷新后 1 分钟：%s" % self.format_deadline(deadline))
         last_flow_time = time.time()
         deadline_hit_logged = False
         while True:
-            if self.in_team():
-                self._entered_mission = True
-                last_flow_time = time.time()
-                # 到点了但人还在本里：不半路硬拽出来（本局奖励还在），打完这一局、
-                # 一离开局内上面的分支就让位给下面那条"到点回列表"，最多多打一局。
-                if deadline and not deadline_hit_logged and time.time() >= deadline:
-                    deadline_hit_logged = True
-                    self.log_info("已到刷新时间但还在本内，等本局结束就回列表重新选择")
-                self.handle_in_mission()
+            try:
+                if self.in_team():
+                    self._entered_mission = True
+                    last_flow_time = time.time()
+                    # 到点了但人还在本里：不半路硬拽出来（本局奖励还在），打完这一局、
+                    # 一离开局内上面的分支就让位给下面那条"到点回列表"，最多多打一局。
+                    if deadline and not deadline_hit_logged and time.time() >= deadline:
+                        deadline_hit_logged = True
+                        self.log_info("已到刷新时间但还在本内，等本局结束就回列表重新选择")
+                    self.handle_in_mission()
+                    self.sleep(0.1)
+                    continue
+
+                # 游戏自己把我们踢回列表了（刷新后当前委托失效等）
+                if self.is_letter_board():
+                    self._entered_mission = False
+                    self.log_info("已经回到委托密函列表")
+                    return
+
+                # 密函选择弹窗：能选的密函卡都没了（只剩 ⊘ 不使用）-> 这一栏开完了
+                if self._entered_mission and self.find_letter_interface() and self.letter_exhausted():
+                    self.log_info("这一栏的密函已经开完，回列表重新选择")
+                    self.leave_letter_start()
+                    return
+
+                now = time.time()
+                # 至少要打过一局才认这个刷新时间：图2 那串倒计时只读得到一次，读错了不至于空转
+                if deadline and now >= deadline and self._entered_mission:
+                    self.log_info("密函委托已到刷新时间，回列表重新选择")
+                    self.leave_letter_start()
+                    return
+
+                if self.in_letter_flow_screen():
+                    last_flow_time = now
+                elif now - last_flow_time > LETTER_FLOW_STALL_TIME_OUT:
+                    self.log_info("密函任务无法继续进行，回列表重新选择")
+                    self.leave_letter_start()
+                    return
+
+                status = self.handle_mission_interface(stop_func=self.letter_stop_func)
+                if status == Mission.STOP:
+                    self.finish_letter_round()
+                    self.sleep(0.1)
+                    continue
+                if status == Mission.CONTINUE and self.is_walk_mode():
+                    # 探险/扼守：和 AutoDefence.do_run 的「继续轮次」一样，续下一轮前重置本局
+                    # 状态（超时计时变成按波算）、等回到局内。驱离保持原样不动。
+                    self.log_info("任务继续")
+                    self.init_for_next_round()
+                    self.wait_until(self.in_team, time_out=self.action_timeout,
+                                    raise_if_not_found=False)
+                if status == Mission.START:
+                    # 等进局内别抛异常：加载慢时 in_team 晚几秒认出来，抛出去会把任务打死
+                    self.wait_until(self.in_team, time_out=30, raise_if_not_found=False)
+                    self.init_all()
+                    self._entered_mission = True
+                    self.handle_mission_start()
+                    # 顺手重读一次刷新倒计时（只有回到图2 时才读得到，读不到就沿用原来的）
+                    fresh_deadline = self.start_screen_refresh_deadline()
+                    if fresh_deadline:
+                        deadline = fresh_deadline
                 self.sleep(0.1)
-                continue
-
-            # 游戏自己把我们踢回列表了（刷新后当前委托失效等）
-            if self.is_letter_board():
-                self._entered_mission = False
-                self.log_info("已经回到委托密函列表")
-                return
-
-            # 密函选择弹窗：能选的密函卡都没了（只剩 ⊘ 不使用）-> 这一栏开完了
-            if self._entered_mission and self.find_letter_interface() and self.letter_exhausted():
-                self.log_info("这一栏的密函已经开完，回列表重新选择")
+            except TaskDisabledException:
+                if not self.recoverable_stop():
+                    raise
+                self.log_info("这一局没能开起来，回列表重新选择")
                 self.leave_letter_start()
                 return
 
-            now = time.time()
-            # 至少要打过一局才认这个刷新时间：图2 那串倒计时只读得到一次，读错了不至于空转
-            if deadline and now >= deadline and self._entered_mission:
-                self.log_info("密函委托已到刷新时间，回列表重新选择")
-                self.leave_letter_start()
-                return
+    def recoverable_stop(self):
+        """这一次 TaskDisabledException 是用户按了停止，还是只是这一局没开成？
 
-            if self.in_letter_flow_screen():
-                last_flow_time = now
-            elif now - last_flow_time > LETTER_FLOW_STALL_TIME_OUT:
-                self.log_info("密函任务无法继续进行，回列表重新选择")
-                self.leave_letter_start()
-                return
-
-            status = self.handle_mission_interface(stop_func=lambda: False)
-            if status == Mission.START:
-                self.wait_until(self.in_team, time_out=30)
-                self.init_all()
-                self._entered_mission = True
-                self.handle_mission_start()
-                # 顺手重读一次刷新倒计时（只有回到图2 时才读得到，读不到就沿用原来的）
-                fresh_deadline = self.start_screen_refresh_deadline()
-                if fresh_deadline:
-                    deadline = fresh_deadline
-            self.sleep(0.1)
+        TaskDisabledException 有两个来源：
+          * 用户在界面上停止任务 —— executor.check_enabled 会先把 current_task 清成
+            None 再抛，这种必须继续往上抛、让任务真的结束；
+          * start_mission 点了开始但界面一直不往前走、20 秒后主动放弃这一局
+            （"任务无法继续"）—— 那种只是这一局没开成，吞掉它、回列表重选继续跑。
+        任务真结束的代价是游戏被丢在界面上没人管，云游戏那边时间一长就掉线。
+        """
+        return self.executor.current_task is not None
 
     def letter_exhausted(self):
         """密函选择弹窗里还有没有可选的密函卡。
@@ -203,6 +399,9 @@ class AutoLetterOpenTask(AutoExpulsion):
 
     def leave_letter_start(self, time_out=20):
         """从图2 离开回图1：结算界面点「退出委托」，其它情况按 ESC 返回。"""
+        # 不管这次能不能回到列表，都把图1 上那个刷新时刻作废：它已经用过了，
+        # 留着会让下一轮内层循环"一进去就到点"，在两屏之间来回空转。
+        self._board_deadline = None
         if self.is_letter_board(force=True):
             self._entered_mission = False
             return True
@@ -215,7 +414,9 @@ class AutoLetterOpenTask(AutoExpulsion):
             if self.wait_until(self.is_letter_board, time_out=2, raise_if_not_found=False):
                 self._entered_mission = False
                 return True
-        self.log_info_notify("没能返回委托密函列表，请检查界面是否正常")
+        # 回不去列表通常意味着画面已经不对劲了（云游戏断线后就是这种表现），
+        # 这里带限频地提醒一下，别让你几小时后才发现脚本一直在空转。
+        self.notify_stuck("没能返回委托密函列表，请检查界面是否正常")
         return False
 
     def in_letter_flow_screen(self):
@@ -255,6 +456,51 @@ class AutoLetterOpenTask(AutoExpulsion):
             return "没读到刷新倒计时"
         return time.strftime("%H:%M:%S", time.localtime(deadline))
 
+    @staticmethod
+    def usable_deadline(deadline, now=None):
+        """已经过期的刷新时刻当作没读到。
+
+        图1 上读到的那个是上一栏留下的；如果"回列表"没成功又绕回内层循环，这个时刻
+        往往已经过期 —— 照用就会变成"刚进来就立刻回列表"的空转。
+        """
+        if deadline is None:
+            return None
+        now = time.time() if now is None else now
+        return None if deadline <= now else deadline
+
+    def keepalive_interval_seconds(self):
+        """空窗期保活间隔（秒），取自配置「空窗保活间隔(分钟)」。"""
+        try:
+            minutes = float(self.config.get("空窗保活间隔(分钟)", KEEPALIVE_INTERVAL_MINUTES_DEFAULT))
+        except (TypeError, ValueError):
+            minutes = KEEPALIVE_INTERVAL_MINUTES_DEFAULT
+        return max(1.0, minutes) * 60
+
+    def frame_missing(self):
+        """现在是不是已经取不到游戏画面了。
+
+        云游戏断线 / 页面被关掉之后抓帧会一直拿不到东西（ok 的日志是
+        windows_graphics:no frame for 10 sec, try to restart），这种时候认界面、
+        点击全是白费 —— 与其一直"认不出界面"地空转，不如说出来等画面回来。
+        """
+        try:
+            return self.frame is None
+        except Exception:
+            return True
+
+    def notify_stuck(self, message):
+        """卡住时的提醒：最多每 STUCK_NOTIFY_INTERVAL_SECONDS 秒响一次，别刷屏。"""
+        if self.frame_missing():
+            message += "（现在连游戏画面都取不到，云游戏大概率已经断线了）"
+        now = time.time()
+        if now - self._last_stuck_notify < STUCK_NOTIFY_INTERVAL_SECONDS:
+            self.log_info(message)
+            return
+        self._last_stuck_notify = now
+        self.log_info(message)
+        self.log_info_notify(message)
+        self.soundBeep()
+
     # ------------------------------------------------------------------
     # 图1：读列表、点「驱离」
     # ------------------------------------------------------------------
@@ -277,7 +523,8 @@ class AutoLetterOpenTask(AutoExpulsion):
         results = self.ocr(box=box, match=None)
 
         data = {"on_board": False, "counts": [None, None, None],
-                "drive_away": [None, None, None], "tasks": [[], [], []]}
+                "drive_away": [None, None, None], "tasks": [[], [], []],
+                "task_boxes": [[], [], []]}
         opened = 0
         headers = 0
         for item in results:
@@ -300,11 +547,12 @@ class AutoLetterOpenTask(AutoExpulsion):
                 data["drive_away"][index] = item
             if not LEVEL_RE.match(name):
                 data["tasks"][index].append(name)
+                data["task_boxes"][index].append(item)
 
         # 「当前开放」每栏一行、「角色/武器/魔之楔」每栏一个标题：两个信号都只在列表上出现，
-        # 阈值放到 2/3 是为了容 OCR 漏一两个，同时避开密函奖励界面（那里也有「持有数」，
-        # 但没有这两个词，所以不会被误判成列表）。
-        data["on_board"] = opened >= 2 or headers >= 3
+        # 各放宽到 2 是为了容 OCR 漏一两个，同时避开密函奖励界面（那里也有「持有数」，
+        # 但没有这两个词，所以不会被误判成列表）。图2 里的栏目名在 y757，不在列表框内。
+        data["on_board"] = opened >= 2 or headers >= 2
         self._board_cache = data
         self._board_cache_time = now
         return data
@@ -317,52 +565,140 @@ class AutoLetterOpenTask(AutoExpulsion):
                 return index
         return None
 
+    def find_any_board_task(self):
+        """空窗期保活用：随便挑一个列表上的任务文字框（点它才会进图2）。"""
+        data = self.scan_letter_board(force=True)
+        if not data["on_board"]:
+            return None
+        for boxes in data["task_boxes"]:
+            if boxes:
+                return boxes[0]
+        return None
+
+    def keepalive_click_around(self):
+        """空窗期保活：点进任意一个委托、再按 ESC 退出来。
+
+        云游戏是按"长时间未操作"断会话的（实拍会弹「连接中断：由于您长时间未操作，
+        连接已断开」），框架那套鼠标抖动是两三像素的相对位移，平台不认；所以每隔
+        配置「空窗保活间隔(分钟)」那么久真点两下：点进图2、ESC 回列表。
+        退不出来也没关系，主循环里的 _picked_drive_away 判断会拦住"顺手开打"。
+        """
+        self._next_keepalive = time.time() + self.keepalive_interval_seconds()
+        target = self.find_any_board_task()
+        if target is None:
+            return
+        self.log_info("空窗期保活：点进一个委托再退出来")
+        self._click_detected(target, name="keepalive_task", after_sleep=0.8)
+        # 不管点进去成没成，都按一下 ESC 收尾：进去了就返回列表，没点动也无害
+        self.wait_until(self.find_start_interface, time_out=5, raise_if_not_found=False)
+        self.send_key("esc")
+        if not self.wait_until(self.is_letter_board, time_out=8, raise_if_not_found=False):
+            self.log_info("保活后没能直接回到列表，再按一次 ESC")
+            self.send_key("esc")
+            self.wait_until(self.is_letter_board, time_out=8, raise_if_not_found=False)
+
     def pick_drive_away(self):
-        """挑一个「持有数>0 且该栏有驱离」的任务点进去，成功返回 True。"""
+        """按优先级挑一个任务点进去，成功返回 True。
+
+        优先级 **驱离 > 探险 > 扼守**：三种任务混在列表那三栏里，每次都挑优先级最高、
+        且该栏「持有数>0」的那种。挑中之后这一把就按它的类型跑对应逻辑（驱离只放技能；
+        探险 / 扼守 判图 + 走位）。
+        """
         data = self.scan_letter_board(force=True)
         if not data["on_board"]:
             return False
 
-        for index, column in enumerate(COLUMN_NAMES):
-            target = data["drive_away"][index]
-            if target is None:
-                continue
-            count = data["counts"][index]
-            if count is None:
-                self.log_info(f"[{column}] 有「驱离」但持有数没认出来，跳过这一栏")
-                continue
-            if count <= 0:
-                self.log_info(f"[{column}] 持有数 {count}，没有密函可开")
-                continue
-            self.log_info(f"[{column}] 持有数 {count}，有「驱离」，进去一直开密函")
-            # 点完就离开列表：缓存作废，避免下一圈还当成"在列表上"再点一次
-            self._board_cache = None
-            self._entered_mission = False
-            # 进图2 之前先在图1 读一次刷新倒计时，图2 那串读不到时拿它兜底
-            seconds = self.read_refresh_countdown()
-            self._board_deadline = self.refresh_deadline(seconds) if seconds else None
-            self._click_detected(target, name="letter_board_drive_away", after_sleep=0.5)
-            # 等界面真的切到图2 再回主循环：列表淡出/图2 淡入那一两秒里 OCR 还会认到列表，
-            # 不等的话下一圈会以为"还在列表上"又点一次。
-            self.wait_until(self.find_start_interface, time_out=5, raise_if_not_found=False)
-            return True
+        for mode in TASK_MODES:
+            for index, column in enumerate(COLUMN_NAMES):
+                target, name = self.column_task(data, index, mode)
+                if target is None:
+                    continue
+                count = data["counts"][index]
+                if count is None:
+                    self.log_onetime_info(f"[{column}] 有「{name}」但持有数没认出来，跳过这一栏")
+                    continue
+                if count <= 0:
+                    # 空窗期每十来秒就会重新挑一次，这条要去重，否则把日志刷满
+                    self.log_onetime_info(f"[{column}] 持有数 {count}，没有密函可开")
+                    continue
+                self.log_info(f"[{column}] 持有数 {count}，有「{name}」，进去开密函")
+                # 点完就离开列表：缓存作废，避免下一圈还当成"在列表上"再点一次
+                self._board_cache = None
+                self._entered_mission = False
+                self._picked_drive_away = True
+                self._dungeon_mode = mode
+                # 探险/扼守：每进一把都从 0 开始数轮次、下一局要重新走位
+                self._walked_this_mission = False
+                self.current_round = 0
+                self._round_counted = False
+                self._next_refresh_check = None
+                # 进图2 之前先在图1 读一次刷新倒计时，图2 那串读不到时拿它兜底
+                seconds = self.read_refresh_countdown()
+                self._board_deadline = self.refresh_deadline(seconds) if seconds else None
+                self._click_detected(target, name="letter_board_task", after_sleep=0.5)
+                # 等界面真的切到图2 再回主循环：列表淡出/图2 淡入那一两秒里 OCR 还会认到列表，
+                # 不等的话下一圈会以为"还在列表上"又点一次。
+                self.wait_until(self.find_start_interface, time_out=5, raise_if_not_found=False)
+                return True
         return False
 
+    @staticmethod
+    def column_task(data, index, mode):
+        """某栏里某一种委托的 (Box, 名字)；没有就 (None, None)。"""
+        if mode == MODE_DRIVE:
+            box = data["drive_away"][index]
+            return (box, MODE_DRIVE) if box is not None else (None, None)
+        for task_name, task_box in zip(data["tasks"][index], data["task_boxes"][index]):
+            if mode_of_task_name(task_name) == mode:
+                return task_box, task_name
+        return None, None
+
+    def current_task_mode(self):
+        """这一把挑中的是哪种委托（驱离/探险/扼守）；还没挑过就按驱离算。"""
+        return self._dungeon_mode if self._dungeon_mode in TASK_MODES else MODE_DRIVE
+
+    def is_walk_mode(self):
+        """这一把要不要判图 + 走位（探险 / 扼守 要，驱离不要）。"""
+        return self.current_task_mode() in WALK_MODES
+
+    def rounds_for_mode(self, mode):
+        """该模式「进一次本打多少轮」；配置读不到就回落到默认 20。"""
+        key = ROUND_CONFIG_KEYS.get(mode, "探险轮次")
+        try:
+            return int(self.config.get(key, DEFAULT_ROUNDS))
+        except (TypeError, ValueError):
+            return DEFAULT_ROUNDS
+
     def handle_no_drive_away(self):
-        """三栏都没有可打的「驱离」。等下一次刷新，或者按配置直接收工。"""
-        data = self.scan_letter_board(force=True)
-        detail = "  ".join("%s: 持有数=%s 任务=%s" % (column, data["counts"][index], data["tasks"][index])
-                           for index, column in enumerate(COLUMN_NAMES))
-        self.log_info("三栏现状 -> " + detail)
+        """三栏都没有可打的任务：等到"刷新倒计时 + 1 分钟"再扫一遍。
+
+        等待是分段的（每段 NO_DRIVE_AWAY_POLL_SECONDS 秒就返回主循环重扫一次列表）：
+        列表上一出现能打的任务马上就能接上，停任务也能立刻响应；而且等待期间任务照常在
+        取帧/发输入（框架的"鼠标抖动"线程在 sleep 里也照跑）。
+
+        光靠抖动不够：云游戏是按"长时间未操作"断会话的，所以每隔「空窗保活间隔(分钟)」
+        再点进一个委托、ESC 退出来一次（见 keepalive_click_around）。
+        """
         if not self.config.get("等待刷新", True):
-            self.log_info_notify("委托密函列表里没有可打的「驱离」，任务结束")
+            self.log_info_notify("委托密函列表里没有可打的委托，任务结束")
             self.soundBeep()
             raise TaskDisabledException
-        seconds = self.read_refresh_countdown()
-        wait = seconds + REFRESH_TOLERANCE_SECONDS if seconds else 65
-        self.log_info_notify(f"暂时没有可打的「驱离」，等 {int(wait)} 秒刷新后重试")
-        self.soundBeep()
-        self.sleep(wait)
+        now = time.time()
+        if self._next_refresh_check is None or now >= self._next_refresh_check:
+            data = self.scan_letter_board(force=True)
+            detail = "  ".join("%s: 持有数=%s 任务=%s" % (column, data["counts"][index], data["tasks"][index])
+                               for index, column in enumerate(COLUMN_NAMES))
+            self.log_info("三栏现状 -> " + detail)
+            seconds = self.read_refresh_countdown()
+            wait = seconds + REFRESH_TOLERANCE_SECONDS if seconds else REFRESH_WAIT_FALLBACK_SECONDS
+            self._next_refresh_check = now + wait
+            self._next_keepalive = now + self.keepalive_interval_seconds()
+            self.log_info_notify(f"暂时没有可打的委托（驱离/探险/扼守），{int(wait)} 秒后（刷新后 1 分钟）再扫一遍")
+            self.soundBeep()
+        self.sleep(NO_DRIVE_AWAY_POLL_SECONDS)
+        # 空窗期别让会话凉着：定期点进一个委托再退出来
+        if time.time() >= self._next_keepalive:
+            self.keepalive_click_around()
 
     def read_refresh_countdown(self):
         """读图1 右下角「xx分xx秒刷新密函委托」的倒计时，返回秒数；读不到返回 None。"""

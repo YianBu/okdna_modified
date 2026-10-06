@@ -32,6 +32,8 @@ class Globals(QObject):
         super().__init__()
         self.pynput_mouse = None
         self.pynput_keyboard = None
+        # 快捷启动键要启动的那个任务（任务列表启动后固定，查一次就缓存）
+        self._hotkey_task = None
         self._thread_pool_executor_max_workers = 0
         self.thread_pool_executor = None
         self.thread_pool_exit_event = Event()
@@ -66,6 +68,37 @@ class Globals(QObject):
 
     def on_press(self, key):
         self.pressed.emit(key)
+        self.handle_task_hotkey(key)
+
+    def hotkey_target_task(self):
+        """快捷启动键指向的任务实例（缓存；找不到就返回 None）。"""
+        if self._hotkey_task is None:
+            try:
+                from src.tasks.fullauto.AutoActionLogicScriptTask import AutoActionLogicScriptTask
+                self._hotkey_task = og.executor.get_task_by_class(AutoActionLogicScriptTask)
+            except Exception as e:
+                logger.error("快捷启动键：找不到目标任务", e)
+        return self._hotkey_task
+
+    def handle_task_hotkey(self, key):
+        """按一个键启动 / 停止某个任务（默认 F8 -> 行动逻辑脚本测试）。
+
+        为什么挂这里：框架自带的 Start/Stop 热键是 RegisterHotKey 的系统级热键，只认
+        F9~F12、而且是"暂停/恢复执行器"；而 pynput 这个全局键盘监听本来就在跑（任务
+        靠它做按键检测），顺手就能用，也不占系统热键。判断逻辑都在
+        src/tasks/TaskHotkey.py，这里只接线 + 兜底，绝不能让快捷键把输入链路带崩。
+        """
+        try:
+            from src.tasks.TaskHotkey import handle, hotkey_of, key_name
+            task = self.hotkey_target_task()
+            if task is None or og.executor is None or og.app is None:
+                return
+            target = hotkey_of(task)
+            if target is None or key_name(key) != target:
+                return
+            handle(og.executor, og.app.start_controller, task, key, tell=logger.info)
+        except Exception as e:
+            logger.error("快捷启动键处理失败", e)
 
     def get_thread_pool_executor(self, max_workers=6):
         """

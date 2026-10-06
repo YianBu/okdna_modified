@@ -639,3 +639,108 @@ msgstr ""
 msgid "列表里暂时没有可打的「驱离」时，等它下次刷新后再扫一遍；关掉则直接结束任务"
 msgstr ""
 
+msgid "扼守探险开密函"
+msgstr ""
+
+msgid "探险轮次"
+msgstr ""
+
+msgid "扼守轮次"
+msgstr ""
+
+msgid "进一次探险副本打多少轮（默认 20）"
+msgstr ""
+
+msgid "进一次扼守副本打多少轮（默认 20）"
+msgstr ""
+
+msgid "测试"
+msgstr ""
+
+msgid "行动逻辑测试"
+msgstr ""
+
+msgid "测试地图"
+msgstr ""
+
+msgid "自动检测"
+msgstr ""
+
+msgid "只检测不执行"
+msgstr ""
+
+msgid "选一张图强制跑它的行动逻辑；「自动检测」则按图标位置判当前地图"
+msgstr ""
+
+msgid "只按图标判地图、不执行走位，用来核对检测框是否正确"
+msgstr ""
+
+msgid "探险高台"
+msgstr ""
+
+msgid "探险平地"
+msgstr ""
+
+msgid "扼守斜走"
+msgstr ""
+
+msgid "扼守直走"
+msgstr ""
+
+msgid "模式"
+msgstr ""
+
+msgid "驱离"
+msgstr ""
+
+msgid "挑哪种任务开密函：驱离 / 探险 / 扼守。选哪个就只打哪种（另外两种不碰）"
+msgstr ""
+
+msgid "列表里暂时没有本模式可打的任务时，等它下次刷新后再扫一遍；关掉则直接结束任务"
+msgstr ""
+
+msgid "列表里暂时没有可打的任务时，等它下次刷新后再扫一遍；关掉则直接结束任务"
+msgstr ""
+
+
+msgid "探险模式下，进一次本打多少轮（默认 20）"
+msgstr ""
+
+msgid "扼守模式下，进一次本打多少轮（默认 20）"
+msgstr ""
+
+msgid "空窗保活间隔(分钟)"
+msgstr ""
+
+msgid "空窗期每隔这么多分钟点进一个委托再退出来，避免云游戏判定「长时间未操作」而断线（实测约 30 分钟就会被踢，别设太接近）"
+msgstr ""
+
+msgid "行动逻辑脚本测试"
+msgstr ""
+
+msgid "行动逻辑文件"
+msgstr ""
+
+msgid "地图"
+msgstr ""
+
+msgid "重复次数"
+msgstr ""
+
+msgid "mod/行动逻辑/ 下的步骤表；改完重开这个任务就会重新读，不用重启程序"
+msgstr ""
+
+msgid "选一张图强制跑它的步骤；「自动检测」按各图填的 track_point 判当前是哪张"
+msgstr ""
+
+msgid "把每张图的检测框挨个跑一遍并打分写日志，用来核对框对不对"
+msgstr ""
+
+msgid "连续跑几遍这套步骤；0 = 一直重复到手动停止"
+msgstr ""
+
+msgid "快捷启动键"
+msgstr ""
+
+msgid "按这个键启动 / 停止本任务（游戏里也认，不用切回程序点按钮）：没在跑就启动，正在跑就停止，再按一次就是重跑并重新读一遍 JSON"
+msgstr ""
