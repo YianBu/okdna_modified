@@ -157,6 +157,8 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
         self._dungeon_mode = None
         # 探险/扼守：这一局有没有走过位（进本第一帧走一次；结算后重开一局会再走）
         self._walked_this_mission = False
+        # 到刷新时间了、但这一轮次还没打完：打完再回列表（探险/扼守用）
+        self._leave_after_rounds = False
         # get_round_info 用它给"这一次行动抉择只数一次"去重
         self._round_counted = False
         # 「自动驱离」在自己 do_run 里初始化这个计数器，这里覆盖了 do_run 就得自己补上，
@@ -250,20 +252,31 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
         return self.current_round >= self.rounds_for_mode(self.current_task_mode())
 
     def finish_letter_round(self):
-        """探险/扼守本内打满一轮：撤离到结算界面、下一局重新判图走位（**不退出到列表**）。
+        """探险/扼守本内打满一轮。
 
-        和「驱离版」一样：主循环接下去会在结算界面点「再次进行」重开一局。真正回列表
-        只发生在：刷新时间到（+1 分钟）、密函开完、或者卡住认不出界面。
+        返回 True = 已经回列表了（调用方直接 return）；False = 接着在结算界面点
+        「再次进行」重开一局。回列表只有一种情况：刷新时间到了（_leave_after_rounds），
+        这时正好把这一轮次打完再走。
         """
+        self._walked_this_mission = False
+        if self._leave_after_rounds:
+            self._leave_after_rounds = False
+            self.log_info("本轮次打完（已到刷新时间），回列表重新选择")
+            self.leave_letter_start()
+            return True
         rounds = self.rounds_for_mode(self.current_task_mode())
         self.log_info(f"本内已打满 {rounds} 轮，撤离到结算界面重新开始")
-        self._walked_this_mission = False
+        # 新的一"大轮"从头数起
+        self.current_round = 0
+        self._round_counted = False
         try:
             if self.in_team() or self.find_action_dialog_retreat():
                 self.quit_mission()
         except Exception as e:
             self.log_info(f"撤离失败（{e}），回列表重新选择")
             self.leave_letter_start()
+            return True
+        return False
 
     def wait_for_start_state(self, time_out=300):
         """等界面处于能开工的状态：图1 列表、图2 开始界面，或结算界面（这一局还没退）。
@@ -313,7 +326,12 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                     # 一离开局内上面的分支就让位给下面那条"到点回列表"，最多多打一局。
                     if deadline and not deadline_hit_logged and time.time() >= deadline:
                         deadline_hit_logged = True
-                        self.log_info("已到刷新时间但还在本内，等本局结束就回列表重新选择")
+                        if self.is_walk_mode():
+                            # 探险/扼守：人到点还在本里，不半路硬拽出来 —— 把这一轮次打完再回列表
+                            self._leave_after_rounds = True
+                            self.log_info("已到刷新时间：打完当前这一轮次就回列表重新选择")
+                        else:
+                            self.log_info("已到刷新时间但还在本内，等本局结束就回列表重新选择")
                     self.handle_in_mission()
                     self.sleep(0.1)
                     continue
@@ -332,7 +350,9 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
 
                 now = time.time()
                 # 至少要打过一局才认这个刷新时间：图2 那串倒计时只读得到一次，读错了不至于空转
-                if deadline and now >= deadline and self._entered_mission:
+                # 探险/扼守不在本外直接回列表：它们的到点是"打完当前这一轮次再回"（见上面
+                # _leave_after_rounds + letter_stop_func），半路把副本丢下会丢奖励。
+                if deadline and now >= deadline and self._entered_mission and not self.is_walk_mode():
                     self.log_info("密函委托已到刷新时间，回列表重新选择")
                     self.leave_letter_start()
                     return
@@ -344,9 +364,17 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                     self.leave_letter_start()
                     return
 
+                if self._leave_after_rounds and self.find_result_again_btn():
+                    # 探险/扼守到点后又打完了这一轮次（结算界面）：回列表重新选
+                    self.log_info("本轮次打完（已到刷新时间），回列表重新选择")
+                    self._leave_after_rounds = False
+                    self.leave_letter_start()
+                    return
+
                 status = self.handle_mission_interface(stop_func=self.letter_stop_func)
                 if status == Mission.STOP:
-                    self.finish_letter_round()
+                    if self.finish_letter_round():
+                        return
                     self.sleep(0.1)
                     continue
                 if status == Mission.CONTINUE and self.is_walk_mode():
@@ -629,6 +657,7 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                 self._dungeon_mode = mode
                 # 探险/扼守：每进一把都从 0 开始数轮次、下一局要重新走位
                 self._walked_this_mission = False
+                self._leave_after_rounds = False
                 self.current_round = 0
                 self._round_counted = False
                 self._next_refresh_check = None

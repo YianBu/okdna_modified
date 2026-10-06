@@ -58,6 +58,7 @@ class TestLetterOpenDungeon(TaskTestCase):
                 'find_start_interface', 'find_action_dialog_continue', 'start_mission',
                 'find_action_dialog_retreat', 'find_esc_menu',
                 'solve_exploration_mechanism', 'get_interact_key', 'find_one', '_dungeon_mode')
+    _PATCHED = _PATCHED + ('leave_letter_start', 'quit_mission', '_leave_after_rounds')
 
     def setUp(self):
         self._saved = {name: getattr(self.task, name) for name in self._PATCHED}
@@ -477,6 +478,29 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.task._dungeon_mode = None
         self.task.current_round = 99
         self.assertFalse(self.task.letter_stop_func())
+
+    def test_finish_round_returns_to_board_when_deadline_hit(self):
+        """到刷新时间了：把这一轮次打完（STOP）就回列表，不再点「再次进行」重开。"""
+        events = []
+        self.task._dungeon_mode = MODE_EXPLORATION
+        self.task._leave_after_rounds = True
+        self.task.leave_letter_start = lambda *a, **k: events.append('leave')
+        self.assertTrue(self.task.finish_letter_round(), '到点后打完轮次应该回列表')
+        self.assertEqual(events, ['leave'])
+        self.assertFalse(self.task._leave_after_rounds)
+
+    def test_finish_round_restarts_when_not_deadline(self):
+        """没到刷新时间：撤离到结算界面重开一局（current_round 归零）。"""
+        events = []
+        self.task._dungeon_mode = MODE_EXPLORATION
+        self.task._leave_after_rounds = False
+        self.task.current_round = 20
+        self.task.in_team = lambda *a, **k: True
+        self.task.quit_mission = lambda *a, **k: events.append('quit')
+        self.task.leave_letter_start = lambda *a, **k: events.append('leave')
+        self.assertFalse(self.task.finish_letter_round(), '没到点不该回列表')
+        self.assertEqual(events, ['quit'])
+        self.assertEqual(self.task.current_round, 0, '新的一"大轮"从头数起')
 
     # ---- 空窗：没有探险/扼守时按「等待刷新」收工 ----
 
