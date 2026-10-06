@@ -37,7 +37,8 @@
   `x1,y1,x2,y2 <TAB> 置信度 <TAB> 文本`（坐标是图片像素，按 1600×900 基准的框换算前先看长边）。
 - 引擎是本机 Python（`C:\Users\67400\AppData\Local\Programs\Python\Python313`，
   也就是 ok 源码版用的那个）里随 `ok` 装好的 PP-OCRv5（`onnxocr` 包，模型随包离线可用）。
-  本机没装 `onnxruntime`，脚本固定走 `use_openvino=True` 的 OpenVINO 后端。
+  默认走 `use_openvino=True` 的 OpenVINO 后端（和 ok 源码版一致）；`onnxruntime`
+  和 `rapidocr` 也已装好，可用 `--backend onnxruntime` 或改用 rapidocr 对照。
 - 终端是 GBK，中文直接打印会乱码：加 `--out` 写成 UTF-8，再用
   `Get-Content -Encoding UTF8` 读回来。
 
