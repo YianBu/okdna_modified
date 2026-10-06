@@ -29,6 +29,18 @@
 - 不要把实现细节、排查过程、踩过的坑、设计取舍写进提交信息；那些留在与用户的对话里，
   需要留档就写进代码注释或本文件。
 
+## 看图片（一律先 OCR）
+
+- 助手这边**看不到图片**（视觉通道不可用，图片在上下文里是被丢掉的），所以用户发的
+  截图**一律先 OCR 再来谈内容**，不要凭文件名或描述猜。
+- 命令：`python tools/ocr_image.py <图片路径> --out 结果.txt`，输出每行
+  `x1,y1,x2,y2 <TAB> 置信度 <TAB> 文本`（坐标是图片像素，按 1600×900 基准的框换算前先看长边）。
+- 引擎是本机 Python（`C:\Users\67400\AppData\Local\Programs\Python\Python313`，
+  也就是 ok 源码版用的那个）里随 `ok` 装好的 PP-OCRv5（`onnxocr` 包，模型随包离线可用）。
+  本机没装 `onnxruntime`，脚本固定走 `use_openvino=True` 的 OpenVINO 后端。
+- 终端是 GBK，中文直接打印会乱码：加 `--out` 写成 UTF-8，再用
+  `Get-Content -Encoding UTF8` 读回来。
+
 ## 部署到本地（默认自动做）
 
 - 用户本地跑的是**源码方式**：`E:\360MoveData\Users\67400\Desktop\ok-dna` 里放了一份
