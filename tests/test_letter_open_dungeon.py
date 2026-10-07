@@ -59,6 +59,8 @@ class TestLetterOpenDungeon(TaskTestCase):
                 'find_action_dialog_retreat', 'find_esc_menu',
                 'solve_exploration_mechanism', 'get_interact_key', 'find_one', '_dungeon_mode')
     _PATCHED = _PATCHED + ('leave_letter_start', 'quit_mission', '_leave_after_rounds')
+    _PATCHED = _PATCHED + ('find_auto_rounds', 'click_box_random',
+                           '_auto_rounds_off_confirmed', '_next_auto_rounds_check')
 
     def setUp(self):
         self._saved = {name: getattr(self.task, name) for name in self._PATCHED}
@@ -91,6 +93,7 @@ class TestLetterOpenDungeon(TaskTestCase):
         clicked = []
         self.task._click_detected = lambda target, **kw: clicked.append(target)
         self.task.wait_until = lambda *a, **k: True
+        self.task.ensure_auto_rounds_off = lambda *a, **k: False
         self.task._picked_drive_away = False
         self.task._dungeon_mode = None
         ok = self.task.pick_drive_away()
@@ -151,6 +154,30 @@ class TestLetterOpenDungeon(TaskTestCase):
         ])
         self.assertFalse(ok)
         self.assertFalse(self.task._picked_drive_away)
+
+    # ---- 图2 的「自动轮次」开着就自动关掉 ----
+
+    def test_ensure_auto_rounds_off_clicks_switch(self):
+        clicks = []
+        label = box(957, 533, '自动轮次')
+        state = {'on': True}
+        self.task.find_auto_rounds = lambda: (state['on'], label)
+
+        def click(target, **kw):
+            clicks.append(target)
+            state['on'] = False        # 点了就当成关掉了
+
+        self.task.click_box_random = click
+        self.assertTrue(self.task.ensure_auto_rounds_off())
+        self.assertEqual(len(clicks), 1, '检测到开着就点一次开关')
+        self.assertGreater(clicks[0].x, 957, '开关是标题右边那个滑块（不是左边）')
+
+    def test_ensure_auto_rounds_off_noop_when_already_off(self):
+        clicks = []
+        self.task.find_auto_rounds = lambda: (False, None)
+        self.task.click_box_random = lambda target, **kw: clicks.append(target)
+        self.assertTrue(self.task.ensure_auto_rounds_off(), '本来就是关的也算成功')
+        self.assertEqual(clicks, [], '本来就是关的，不点')
 
     def test_pick_skips_zero_count_column(self):
         """该栏持有数为 0 就跳过，换下一栏有本模式任务的。"""
@@ -409,6 +436,7 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.stub_board(BOARD_OCR)
         self.task._click_detected = lambda *a, **k: True
         self.task.wait_until = lambda *a, **k: True
+        self.task.ensure_auto_rounds_off = lambda *a, **k: False
         self.task._walked_this_mission = True
         self.task.current_round = 5
         self.task._round_counted = True

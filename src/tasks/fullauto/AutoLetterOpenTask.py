@@ -2,7 +2,7 @@ from qfluentwidgets import FluentIcon
 import re
 import time
 
-from ok import Logger, TaskDisabledException
+from ok import Box, Logger, TaskDisabledException
 
 from src.tasks.AutoExpulsion import AutoExpulsion
 from src.tasks.CommissionsTask import Mission
@@ -46,6 +46,19 @@ STUCK_NOTIFY_INTERVAL_SECONDS = 300
 # 图2 里连续这么多秒认不出任何「密函流程界面」，就当这一栏打不下去了（密函开完、
 # 或刷新后当前委托失效），回图1 重新选。
 LETTER_FLOW_STALL_TIME_OUT = 45
+
+# 图2 的「自动轮次」开关：开着时标题下面多一行「轮次x/99」。开着会干扰本任务的轮次
+# 计算，所以进图2 时检测到就自动点掉。
+# 开关是那一行**右侧**的滑块（实拍：标题在 x957，亮色滑块 96x27 在 x1452-1548、
+# 和标题同一行；关的时候滑块挪到轨道左边、轨道变暗）。所以按现场 OCR 到的标题行 y，
+# 点固定的 x（1600x900 基准 1500）。
+AUTO_ROUNDS_RE = re.compile(r'轮次s*d+s*/s*d+')
+AUTO_ROUNDS_LABEL_RE = re.compile(r'自动轮次')
+# 「自动轮次」四个字在 1600x900 基准约 108px 宽；滑块中心在标题左边缘往右约 543px
+# （实拍：标题 x957 → 滑块中心 x1500）。实际分辨率下按标题实际宽度等比缩放。
+AUTO_ROUNDS_LABEL_W = 108
+AUTO_ROUNDS_SWITCH_DX = 543
+AUTO_ROUNDS_SWITCH_W = 60
 
 # 三种委托混在列表那三栏里，挑的时候按优先级来：驱离 > 探险 > 扼守。
 #   * 驱离：走原来的流程（进本只放技能，不判图不走位）；
@@ -159,6 +172,9 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
         self._walked_this_mission = False
         # 到刷新时间了、但这一轮次还没打完：打完再回列表（探险/扼守用）
         self._leave_after_rounds = False
+        # 图2 的「自动轮次」是否已确认关掉；没确认前在图2 上（点「选择密函」之前）反复查
+        self._auto_rounds_off_confirmed = False
+        self._next_auto_rounds_check = 0
         # get_round_info 用它给"这一次行动抉择只数一次"去重
         self._round_counted = False
         # 「自动驱离」在自己 do_run 里初始化这个计数器，这里覆盖了 do_run 就得自己补上，
@@ -370,6 +386,13 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                     self._leave_after_rounds = False
                     self.leave_letter_start()
                     return
+
+                if (not self._auto_rounds_off_confirmed and self.find_start_interface()
+                        and now >= self._next_auto_rounds_check):
+                    # 图2 上、点「选择密函」之前：确认「自动轮次」是关的（开着会干扰轮次计算）
+                    self._next_auto_rounds_check = now + 2
+                    if self.ensure_auto_rounds_off():
+                        self._auto_rounds_off_confirmed = True
 
                 status = self.handle_mission_interface(stop_func=self.letter_stop_func)
                 if status == Mission.STOP:
@@ -658,6 +681,8 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                 # 探险/扼守：每进一把都从 0 开始数轮次、下一局要重新走位
                 self._walked_this_mission = False
                 self._leave_after_rounds = False
+                self._auto_rounds_off_confirmed = False
+                self._next_auto_rounds_check = 0
                 self.current_round = 0
                 self._round_counted = False
                 self._next_refresh_check = None
@@ -668,7 +693,61 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                 # 等界面真的切到图2 再回主循环：列表淡出/图2 淡入那一两秒里 OCR 还会认到列表，
                 # 不等的话下一圈会以为"还在列表上"又点一次。
                 self.wait_until(self.find_start_interface, time_out=5, raise_if_not_found=False)
+                # 图2 上先关「自动轮次」（开着会干扰轮次计算）；没确认到就交给主循环再查
+                self._auto_rounds_off_confirmed = self.ensure_auto_rounds_off()
                 return True
+        return False
+
+    # ---- 图2 的「自动轮次」开关 ----
+    def find_auto_rounds(self):
+        """图2 的「自动轮次」：返回 (是不是开着, 标题框)。
+
+        两个信号一起用：开着时标题下面多一行「轮次x/99」；而且整块内容上移约 95px，
+        所以「标题落在搜索框上半部分」也算开着（收紧的 STATE 框偶尔读不出来时兜底）。
+        """
+        label_box = self.screen_box('LETTER_AUTO_ROUNDS_LABEL')
+        self.draw_boxes('letter_auto_rounds_label', label_box, 'blue')
+        label = self.ocr(box=label_box, match=AUTO_ROUNDS_LABEL_RE)
+        lb = label[0] if label else None
+        state_box = self.screen_box('LETTER_AUTO_ROUNDS_STATE')
+        self.draw_boxes('letter_auto_rounds_state', state_box, 'blue')
+        if self.ocr(box=state_box, match=AUTO_ROUNDS_RE):
+            return True, lb
+        if lb is not None and (lb.y - label_box.y) < label_box.height * 0.5:
+            return True, lb
+        return False, lb
+
+    def ensure_auto_rounds_off(self, attempts=3):
+        """把「自动轮次」关掉：返回 True 表示现在是关的（本来就关、或这次关掉了）。
+
+        开关是「自动轮次」那一行右侧的滑块；标题位置会随开/关上下移（约 95px），所以
+        按现场 OCR 到的标题框算点击位置：y 取标题中心，x = 标题左边 + 固定距离（按标题
+        宽度等比缩放，适配不同分辨率）。点一次没关掉，就沿滑块左右再试两次。
+        """
+        on, _ = self.find_auto_rounds()
+        if not on:
+            return True
+        for attempt, dx in enumerate((0, -30, 30)[:attempts]):
+            on, lb = self.find_auto_rounds()
+            if not on:
+                self.log_info("已关闭「自动轮次」")
+                return True
+            if lb is None:
+                self.log_info("「自动轮次」开着，但没读到标题位置，跳过")
+                return False
+            scale = lb.width / AUTO_ROUNDS_LABEL_W if AUTO_ROUNDS_LABEL_W else 1.0
+            cx = int(lb.x + AUTO_ROUNDS_SWITCH_DX * scale) + int(dx * scale)
+            cy = lb.y + lb.height // 2
+            switch = Box(cx - AUTO_ROUNDS_SWITCH_W // 2, cy - 12,
+                         AUTO_ROUNDS_SWITCH_W, 24, 0.99, 'auto_rounds_switch')
+            self.draw_boxes(switch.name, switch, 'green')
+            self.log_info(f"检测到「自动轮次」开着，点开关关掉（第 {attempt + 1} 次，"
+                          "开着会干扰轮次计算）")
+            self.click_box_random(switch, after_sleep=0.8)
+        if not self.find_auto_rounds()[0]:
+            self.log_info("已关闭「自动轮次」")
+            return True
+        self.log_info("「自动轮次」没关掉（开关位置可能不对）")
         return False
 
     @staticmethod

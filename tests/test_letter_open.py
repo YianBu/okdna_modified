@@ -118,6 +118,7 @@ class TestLetterOpen(TaskTestCase):
         self.stub_board(BOARD_OCR)
         self.task._click_detected = lambda *a, **k: True
         self.task.wait_until = lambda *a, **k: True
+        self.task.ensure_auto_rounds_off = lambda *a, **k: False
         self.task._picked_drive_away = False
         self.assertTrue(self.task.pick_drive_away(), '魔之楔那栏有持有数>0 的驱离，应该点它')
         self.assertTrue(self.task._picked_drive_away)
