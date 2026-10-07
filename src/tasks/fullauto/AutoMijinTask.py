@@ -116,8 +116,8 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.icon = FluentIcon.FLAG
         self.name = "自动迷津"
         self.description = "全自动"
-        self.group_name = "全自动"
-        self.group_icon = FluentIcon.CAFE
+        self.group_name = "全自动（特殊）"
+        self.group_icon = FluentIcon.GAME
 
         # 一轮打太久的兜底：超时就主动退本、重开一轮。
         # 放在最前面，界面上这一项就排在「挂机模式」之前（配置顺序 = default_config 的插入顺序）

@@ -23,10 +23,10 @@ class AutoExploration_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.icon = FluentIcon.FLAG
-        self.group_icon = FluentIcon.CAFE
+        self.group_icon = FluentIcon.CALENDAR
         self.name = "自动探险/无尽"
         self.description = "全自动"
-        self.group_name = "全自动"
+        self.group_name = "全自动（日常）"
         self.default_config.update({
             '轮次': 3,
             '超时时间': 120,

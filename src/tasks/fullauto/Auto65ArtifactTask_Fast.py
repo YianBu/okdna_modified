@@ -29,8 +29,8 @@ class Auto65ArtifactTask_Fast(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.icon = FluentIcon.FLAG
         self.name = "自动防御"
         self.description = "全自动"
-        self.group_name = "全自动"
-        self.group_icon = FluentIcon.CAFE
+        self.group_name = "全自动（日常）"
+        self.group_icon = FluentIcon.CALENDAR
 
         self.setup_commission_config()
 

@@ -33,8 +33,8 @@ class ImportTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.icon = FluentIcon.FLAG
         self.name = "使用外部移动逻辑自动打本"
         self.description = "全自动"
-        self.group_name = "全自动"
-        self.group_icon = FluentIcon.CAFE
+        self.group_name = "测试"
+        self.group_icon = FluentIcon.DEVELOPER_TOOLS
         self.last_f_time = 0
         self.last_f_was_interact = False
 

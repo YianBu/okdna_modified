@@ -108,8 +108,8 @@ class AutoTheatreTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.icon = FluentIcon.FLAG
         self.name = "自动沉浸式戏剧"
         self.description = "全自动"
-        self.group_name = "全自动"
-        self.group_icon = FluentIcon.CAFE
+        self.group_name = "全自动（特殊）"
+        self.group_icon = FluentIcon.GAME
 
         self.setup_commission_config()
         self.setup_mission_start_config()

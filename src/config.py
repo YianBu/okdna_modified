@@ -203,23 +203,27 @@ config = {
     "onetime_tasks": [  # tasks to execute
         ["src.tasks.config.CommissionConfig", "CommissionConfig"],
         ["src.tasks.config.CommissionSkillConfig", "CommissionSkillConfig"],
-        ["src.tasks.fullauto.AutoFishTask_Leisure", "AutoFishTask_Leisure"],
+        # 全自动（日常）
         ["src.tasks.fullauto.Auto65ArtifactTask_Fast", "Auto65ArtifactTask_Fast"],
         ["src.tasks.AutoExpulsion", "AutoExpulsion"],
+        ["src.tasks.fullauto.AutoExploration_Fast", "AutoExploration_Fast"],
+        # 全自动（休闲）
+        ["src.tasks.fullauto.AutoFishTask_Leisure", "AutoFishTask_Leisure"],
+        ["src.tasks.fullauto.AutoFishTask", "AutoFishTask"],
+        # 全自动（特殊）
         ["src.tasks.fullauto.AutoMijinTask", "AutoMijinTask"],
         ["src.tasks.fullauto.AutoLetterOpenTask", "AutoLetterOpenTask"],
         ["src.tasks.fullauto.AutoTheatreTask", "AutoTheatreTask"],
-        ["src.tasks.fullauto.AutoFishTask", "AutoFishTask"],
-        ["src.tasks.fullauto.AutoExploration_Fast", "AutoExploration_Fast"],
-        ["src.tasks.fullauto.ImportTask", "ImportTask"],
         ["src.tasks.AutoSkill", "AutoSkill"],
         ["src.tasks.AutoGeneral", "AutoGeneral"],
         ["src.tasks.AutoDefence", "AutoDefence"],
         ["src.tasks.AutoExploration", "AutoExploration"],
         ["src.tasks.AutoExcavation", "AutoExcavation"],
         ["src.tasks.AutoHedge", "AutoHedge"],
+        # 测试
         ["src.tasks.fullauto.AutoDungeonActionTestTask", "AutoDungeonActionTestTask"],
         ["src.tasks.fullauto.AutoActionLogicScriptTask", "AutoActionLogicScriptTask"],
+        ["src.tasks.fullauto.ImportTask", "ImportTask"],
         ["ok", "DiagnosisTask"],
     ],
     "trigger_tasks": [
