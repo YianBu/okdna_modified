@@ -59,8 +59,12 @@ class TestLetterOpenDungeon(TaskTestCase):
                 'find_action_dialog_retreat', 'find_esc_menu',
                 'solve_exploration_mechanism', 'get_interact_key', 'find_one', '_dungeon_mode')
     _PATCHED = _PATCHED + ('leave_letter_start', 'quit_mission', '_leave_after_rounds')
+    _PATCHED = _PATCHED + ('leave_to_board',)
     _PATCHED = _PATCHED + ('find_auto_rounds', 'click_box_random',
-                           '_auto_rounds_off_confirmed', '_next_auto_rounds_check')
+                           '_auto_rounds_off_confirmed', '_next_auto_rounds_check',
+                           '_entry_letter_count', '_entry_rounds_done')
+    _PATCHED = _PATCHED + ('update_rounds_info', 'info_set')
+    _PATCHED = _PATCHED + ('account_drive_away_round',)
 
     def setUp(self):
         self._saved = {name: getattr(self.task, name) for name in self._PATCHED}
@@ -481,6 +485,51 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.task.config = {'探险轮次': '坏值'}
         self.assertEqual(self.task.rounds_for_mode(MODE_EXPLORATION), 20)
 
+    def test_rounds_per_mission_config_and_column_cap(self):
+        """每局打「配置轮次」；这一栏的持有数是总上限，累计到上限就收工。"""
+        self.task.config = {'探险轮次': 20, '扼守轮次': 3}
+        self.task._dungeon_mode = MODE_EXPLORATION
+        self.task._entry_letter_count = 50
+        self.task._entry_rounds_done = 0
+        self.assertEqual(self.task.rounds_this_mission(), 20, '每局按配置轮次打')
+        self.task._entry_rounds_done = 40
+        self.assertEqual(self.task.rounds_this_mission(), 10, '离上限只剩 10 轮就只打 10 轮')
+        self.task._entry_rounds_done = 50
+        self.assertTrue(self.task.entry_rounds_full())
+        self.task._entry_letter_count = None
+        self.task._entry_rounds_done = 999
+        self.assertFalse(self.task.entry_rounds_full(), '读不到持有数就不设上限')
+        self.assertEqual(self.task.rounds_this_mission(), 20)
+
+    def test_account_mission_rounds_accumulates(self):
+        self.task.config = {'探险轮次': 20}
+        self.task.current_round = 20
+        self.task._entry_rounds_done = 0
+        self.task.account_mission_rounds()
+        self.assertEqual(self.task._entry_rounds_done, 20, '这一局打的轮次要累加')
+        self.assertEqual(self.task.current_round, 0, '新一局从头数')
+
+    def test_rounds_info_column(self):
+        """信息栏「轮次计算」显示 已打/上限。"""
+        shown = {}
+        self.task.info_set = lambda key, value: shown.__setitem__(key, value)
+        self.task._entry_letter_count = 30
+        self.task._entry_rounds_done = 7
+        self.task.current_round = 2
+        self.task.update_rounds_info()
+        self.assertEqual(shown.get('轮次计算'), '9/30', '这一局打的也算进去')
+        self.task._entry_letter_count = None
+        self.task._entry_rounds_done = 0
+        self.task.current_round = 0
+        self.task.update_rounds_info()
+        self.assertEqual(shown.get('轮次计算'), '0/?', '读不到持有数上限就显示 ?')
+
+    def test_pick_records_column_count_as_cap(self):
+        ok, _ = self.pick(BOARD_OCR)
+        self.assertTrue(ok)
+        self.assertEqual(self.task._entry_letter_count, 815, '记下这一栏「持有数」当总上限')
+        self.assertEqual(self.task._entry_rounds_done, 0, '这一栏累计轮次从头数')
+
     def test_stop_func_stops_at_configured_rounds(self):
         self.task.get_round_info = lambda: None
         self.task.config = {'探险轮次': 5, '扼守轮次': 5}
@@ -507,12 +556,41 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.task.current_round = 99
         self.assertFalse(self.task.letter_stop_func())
 
+    def test_drive_mode_counts_rounds_too(self):
+        """驱离也要数轮次（信息栏「轮次计算」才看得到进度），只是不设上限、不收工。"""
+        shown = {}
+        self.task.get_round_info = lambda: setattr(self.task, 'current_round', 3)
+        self.task.info_set = lambda key, value: shown.__setitem__(key, value)
+        self.task._dungeon_mode = None
+        self.task._entry_letter_count = 815
+        self.task._entry_rounds_done = 0
+        self.assertFalse(self.task.letter_stop_func(), '驱离不该收工')
+        self.assertEqual(shown.get('轮次计算'), '3/815', '驱离也要算出已打轮次')
+
+    def test_drive_away_counts_one_round_per_result_screen(self):
+        """驱离没有波次信号：进一次结算界面就算打了一轮。"""
+        shown = {}
+        self.task.info_set = lambda key, value: shown.__setitem__(key, value)
+        self.task._entry_letter_count = 5
+        self.task._entry_rounds_done = 2
+        self.task.current_round = 0
+        self.task.account_drive_away_round()
+        self.assertEqual(self.task._entry_rounds_done, 3, '结算一次 +1 轮')
+        self.assertEqual(shown.get('轮次计算'), '3/5')
+        self.task.account_drive_away_round()
+        self.assertEqual(self.task._entry_rounds_done, 4)
+        self.assertFalse(self.task.entry_rounds_full(), '4 < 5 还没到上限')
+        self.task.account_drive_away_round()
+        self.assertTrue(self.task.entry_rounds_full(), '到 5 就满上限了')
+
     def test_finish_round_returns_to_board_when_deadline_hit(self):
         """到刷新时间了：把这一轮次打完（STOP）就回列表，不再点「再次进行」重开。"""
         events = []
         self.task._dungeon_mode = MODE_EXPLORATION
         self.task._leave_after_rounds = True
-        self.task.leave_letter_start = lambda *a, **k: events.append('leave')
+        self.task.in_team = lambda *a, **k: False
+        self.task.find_action_dialog_retreat = lambda **kw: None
+        self.task.leave_to_board = lambda *a, **k: events.append('leave')
         self.assertTrue(self.task.finish_letter_round(), '到点后打完轮次应该回列表')
         self.assertEqual(events, ['leave'])
         self.assertFalse(self.task._leave_after_rounds)
@@ -526,6 +604,7 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.task.in_team = lambda *a, **k: True
         self.task.quit_mission = lambda *a, **k: events.append('quit')
         self.task.leave_letter_start = lambda *a, **k: events.append('leave')
+        self.task.leave_to_board = lambda *a, **k: events.append('leave')
         self.assertFalse(self.task.finish_letter_round(), '没到点不该回列表')
         self.assertEqual(events, ['quit'])
         self.assertEqual(self.task.current_round, 0, '新的一"大轮"从头数起')

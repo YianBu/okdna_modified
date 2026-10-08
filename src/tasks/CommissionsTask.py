@@ -27,6 +27,9 @@ from src.tasks.config.CommissionSkillConfig import CommissionSkillConfig
 AUTO_ADVANCE_TIME_OUT = 20
 # 检测到进入战斗后仍继续前进的秒数：战斗判据出现得比"走进交战区"早一点
 AUTO_ADVANCE_EXTRA_TIME = 2
+# 「放弃挑战」二次确认弹窗的文字（标题「退出委托」/ 正文「是否结束当前任务？」）：
+# 金圈判据认不出来时用它兜底，判"这一屏是二次确认弹窗"。
+GIVEUP_CONFIRM_RE = re.compile(r'退出委托|是否结束当前任务')
 
 
 class Mission(Enum):
@@ -342,47 +345,79 @@ class CommissionsTask(BaseDNATask):
         raise Exception("等待开始任务超时")
 
     def quit_mission(self, timeout=0):
+        """撤离副本：一步步来（等界面 -> 点对应按钮），直到不在局内。
+
+        原来是"只在行动抉择弹窗上点一次「撤离」、认不出就 raise" —— 云游戏丢点击或者判据
+        没认出来时会把整个任务打死（表现：按了 ESC 之后就不动了）。现在改成状态机：每一步
+        都有独立判据，认不出就等下一轮再认；超时只记日志、返回 False。
+        """
         action_timeout = self.action_timeout if timeout == 0 else timeout
-        self.wait_until(self.find_action_dialog_retreat, time_out=action_timeout, raise_if_not_found=True)
-        self.wait_until(
-            condition=lambda: not self.find_action_dialog_retreat(),
-            post_action=lambda: self.click_ui_coord(COORD.ACTION_RETREAT, name="quit_mission", after_sleep=0.25),
-            time_out=action_timeout,
-            raise_if_not_found=True,
-        )
-        self.sleep(1)
-        self.wait_until(lambda: not self.in_team(), time_out=action_timeout, raise_if_not_found=True)
+        deadline = time.time() + max(30, action_timeout * 2)
+        while time.time() < deadline:
+            if self.leave_mission_once():
+                self.sleep(0.5)
+                return True
+            self.sleep(0.2)
+        self.log_info("撤离副本超时（没能离开局内）")
+        return False
+
+    def leave_mission_once(self):
+        """撤离流程走一步；返回 True 表示已经离开局内。
+
+        行动抉择弹窗 -> 点「撤离」；二次确认弹窗 -> 点「确定」；局内菜单 -> 点「放弃挑战」；
+        局内没菜单 -> 按一次 ESC 并**等菜单出来**（别盲按，盲按会把菜单又关掉）。
+        """
+        if not self.in_team() and not self.find_esc_menu():
+            return True
+        if self.find_action_dialog_retreat():
+            self.click_ui_coord(COORD.ACTION_RETREAT, name="quit_mission", after_sleep=1)
+            return False
+        if self.confirm_giveup_dialog():
+            self.click_giveup_confirm()
+            return False
+        if self.find_esc_menu():
+            self.click_ui_coord(COORD.ESC_GIVEUP, name="esc_giveup", after_sleep=0.6)
+            return False
+        if self.in_team():
+            self.send_key("esc")
+            self.wait_until(self.find_esc_menu, time_out=3, raise_if_not_found=False)
+        return False
+
+    def confirm_giveup_dialog(self):
+        """当前这一屏是不是「放弃挑战」的二次确认弹窗。
+
+        金圈判据（find_center_confirm）有时认不出来，再配一条弹窗文字判据兜底：
+        标题「退出委托」/ 正文「是否结束当前任务？」。
+        """
+        if self.find_center_confirm(threshold=0.9) is not None:
+            return True
+        return bool(self.ocr(box=self.screen_box('GIVEUP_CONFIRM'), match=GIVEUP_CONFIRM_RE))
+
+    def click_giveup_confirm(self):
+        """点二次确认弹窗的「确定」：金圈判据命中点判据框，判据失效就点固定坐标兜底。"""
+        if not self._click_detected(self.find_center_confirm(threshold=0.9),
+                                    name="giveup_confirm", after_sleep=0.5):
+            self.click_ui_coord(COORD.RESET_TRANSPORT_OK, name="giveup_confirm_fixed", after_sleep=0.5)
 
     def give_up_mission(self, timeout=0):
+        """放弃挑战，等到"能重开"的界面（开始界面 / 行动抉择 / 结算 / 局内菜单）。
+
+        走和 quit_mission 同一套状态机（ESC -> 放弃挑战 -> 二次确认「确定」），认不出就等
+        下一轮再认；最后再等一会儿界面到位就返回 —— 不抛异常，也不死等 60 秒。
+        """
         def is_mission_start_iface():
-            return self.find_start_interface() or self.find_action_dialog_continue() or self.find_esc_menu()
+            return (self.find_start_interface() or self.find_action_dialog_continue()
+                    or self.find_esc_menu() or self.find_result_again_btn())
 
         action_timeout = self.action_timeout if timeout == 0 else timeout
-
-        if self.open_in_mission_menu(time_out=10, raise_if_not_found=False):
-            # ESC 菜单里「放弃挑战」
-            self.wait_until(
-                condition=lambda: not self.find_esc_menu(),
-                post_action=lambda: self.click_ui_coord(COORD.ESC_GIVEUP, name="esc_giveup", after_sleep=0.25),
-                time_out=action_timeout,
-                raise_if_not_found=True,
-            )
-            self.sleep(0.5)
-            # 「放弃挑战」二次确认：判据命中就点判据框，判据失效（新版 UI 换皮/换位）时兜底点固定坐标，
-            # 一直点到回到开始界面为止，避免判据失效时死等 60 秒导致超时后无法重开
-            def _click_giveup_confirm():
-                if not self._click_detected(self.find_center_confirm(threshold=0.9), name="giveup_confirm"):
-                    self.click_ui_coord(COORD.RESET_TRANSPORT_OK, name="giveup_confirm_fixed", after_sleep=0.25)
-
-            self.wait_until(
-                condition=is_mission_start_iface,
-                post_action=_click_giveup_confirm,
-                time_out=action_timeout,
-                raise_if_not_found=False,
-            )
-            self.sleep(0.5)
-
-        self.wait_until(condition=is_mission_start_iface, time_out=60, raise_if_not_found=False)
+        deadline = time.time() + max(30, action_timeout * 2)
+        while time.time() < deadline:
+            if not self.in_team() and is_mission_start_iface():
+                return True
+            self.leave_mission_once()
+            self.sleep(0.2)
+        self.log_info("放弃挑战超时（没能回到开始/结算界面）")
+        return False
 
     def continue_mission(self, timeout=0):
         if self.in_team():

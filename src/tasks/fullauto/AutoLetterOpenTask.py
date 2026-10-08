@@ -46,6 +46,9 @@ STUCK_NOTIFY_INTERVAL_SECONDS = 300
 # 图2 里连续这么多秒认不出任何「密函流程界面」，就当这一栏打不下去了（密函开完、
 # 或刷新后当前委托失效），回图1 重新选。
 LETTER_FLOW_STALL_TIME_OUT = 45
+# 「密函卡那一带读不到持有数」要持续这么久才算"这一栏开完"：单次 OCR 漏读（实拍：角色密函
+# 的持有数是立绘格角上的小角标，容易漏）不该直接撤离。
+LETTER_EXHAUSTED_CONFIRM_SECONDS = 2.0
 
 # 图2 的「自动轮次」开关：开着时标题下面多一行「轮次x/99」。开着会干扰本任务的轮次
 # 计算，所以进图2 时检测到就自动点掉。
@@ -175,6 +178,12 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
         # 图2 的「自动轮次」是否已确认关掉；没确认前在图2 上（点「选择密函」之前）反复查
         self._auto_rounds_off_confirmed = False
         self._next_auto_rounds_check = 0
+        # 这一把这一栏读到的密函「持有数」：每打一轮消耗一张，比配置轮次少时按它收工
+        self._entry_letter_count = None
+        # 这一栏累计已经打了多少轮（每局打完在结算界面累加，到持有数上限就撤离回列表）
+        self._entry_rounds_done = 0
+        # 密函卡那一带从什么时候开始就读不到持有数了（要连续一段才算"开完"，防单次漏读）
+        self._letter_exhausted_since = 0
         # get_round_info 用它给"这一次行动抉择只数一次"去重
         self._round_counted = False
         # 「自动驱离」在自己 do_run 里初始化这个计数器，这里覆盖了 do_run 就得自己补上，
@@ -261,30 +270,108 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
             self.log_info("战斗开始")
 
     def letter_stop_func(self):
-        """行动抉择弹窗出现时调用：探险/扼守打满本轮次返回 True；驱离永远 False。"""
+        """行动抉择弹窗出现时调用：探险/扼守打满本轮次返回 True；驱离只计数不设上限。
+
+        三种模式都会数轮次（驱离也数，信息栏「轮次计算」才看得到进度）；只有探险/扼守
+        会在打到"配置轮次 / 这把的剩余上限"时返回 True 收工。
+        """
+        self.get_round_info()
+        self.update_rounds_info()
         if not self.is_walk_mode():
             return False
-        self.get_round_info()
-        return self.current_round >= self.rounds_for_mode(self.current_task_mode())
+        return self.current_round >= self.rounds_this_mission()
+
+    def rounds_this_mission(self):
+        """这一局打多少轮：**配置轮次**，但不超过这一栏"还没打到上限"的剩余轮数。
+
+        无尽模式每打一轮消耗一张密函。配置轮次是每局打的量；进本时读到的持有数是这一栏
+        的总上限 —— 每局打完在结算界面把轮次累加（account_mission_rounds），累计到上限
+        就撤离回列表（finish_letter_round 里判）。读不到持有数时不设上限，按配置轮次打。
+        """
+        rounds = self.rounds_for_mode(self.current_task_mode())
+        if self._entry_letter_count is None:
+            return rounds
+        left = max(0, self._entry_letter_count - self._entry_rounds_done)
+        return min(rounds, left)
+
+    def account_mission_rounds(self):
+        """一局结束：把这一局打的轮次累加进"这一栏已打多少轮"。"""
+        self._entry_rounds_done += max(0, self.current_round)
+        self.current_round = 0
+        self._round_counted = False
+        self.update_rounds_info()
+
+    def account_drive_away_round(self):
+        """驱离：一进结算界面就算打了一轮（它没有「行动抉择」那种波次信号可数）。"""
+        self._entry_rounds_done += 1
+        self.current_round = 0
+        self._round_counted = False
+        self.update_rounds_info()
+
+    def update_rounds_info(self):
+        """信息栏「轮次计算」那一栏：已打/轮次上限（持有数，读不到就显示 ?）。
+
+        每从图1 挑一次任务（= 回到初始界面）都会重置成 0/上限，之后每打一轮往上加。
+        """
+        done = self._entry_rounds_done + max(0, self.current_round)
+        cap = "?" if self._entry_letter_count is None else self._entry_letter_count
+        self.info_set("轮次计算", f"{done}/{cap}")
+
+    def entry_rounds_full(self):
+        """这一栏累计已经打到（或超过）持有数上限了。"""
+        return (self._entry_letter_count is not None
+                and self._entry_rounds_done >= self._entry_letter_count)
+
+    def leave_to_board(self):
+        """回到委托密函列表：先撤离副本，再从结算/开始界面回列表。
+
+        撤离本身走 CommissionsTask.quit_mission（和委托副本同一套状态机：行动抉择点
+        「撤离」/ ESC 菜单点「放弃挑战」+ 二次确认「确定」）；这里只负责之后那几步：
+        结算界面点「退出委托」、图2 开始界面按 ESC，直到回到图1 列表。
+        """
+        self.log_info("撤离：回委托密函列表")
+        self.quit_mission()
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if self.is_letter_board(force=True):
+                self._entered_mission = False
+                self.log_info("已经回到委托密函列表")
+                return True
+            if self.find_result_again_btn():
+                # 结算界面：点「退出委托」回列表
+                self.click_ui_coord(COORD.RESULT_QUIT, name="letter_result_quit", after_sleep=1)
+                continue
+            # 图2 开始界面（或过场）：按 ESC 回列表
+            self.send_key("esc")
+            if self.wait_until(self.is_letter_board, time_out=2, raise_if_not_found=False):
+                self._entered_mission = False
+                return True
+        self.notify_stuck("撤离副本超时，没能回到委托密函列表")
+        return False
 
     def finish_letter_round(self):
         """探险/扼守本内打满一轮。
 
         返回 True = 已经回列表了（调用方直接 return）；False = 接着在结算界面点
-        「再次进行」重开一局。回列表只有一种情况：刷新时间到了（_leave_after_rounds），
-        这时正好把这一轮次打完再走。
+        「再次进行」重开一局。每局结束先把这局打的轮次累加；累计到这一栏的持有数上限
+        （或刷新时间到）就回列表。
         """
         self._walked_this_mission = False
+        played = max(0, self.current_round)
+        self.account_mission_rounds()
         if self._leave_after_rounds:
             self._leave_after_rounds = False
             self.log_info("本轮次打完（已到刷新时间），回列表重新选择")
-            self.leave_letter_start()
+            self.leave_to_board()
             return True
-        rounds = self.rounds_for_mode(self.current_task_mode())
-        self.log_info(f"本内已打满 {rounds} 轮，撤离到结算界面重新开始")
-        # 新的一"大轮"从头数起
-        self.current_round = 0
-        self._round_counted = False
+        if self.entry_rounds_full():
+            self.log_info(f"这一栏已累计打满 {self._entry_rounds_done}/"
+                          f"{self._entry_letter_count} 轮，撤离回列表重新选择")
+            self.leave_to_board()
+            return True
+        cap = self._entry_letter_count
+        tail = f"（这栏累计 {self._entry_rounds_done}/{cap}）" if cap is not None else ""
+        self.log_info(f"本局已打 {played} 轮{tail}，撤离到结算界面重新开始")
         try:
             if self.in_team() or self.find_action_dialog_retreat():
                 self.quit_mission()
@@ -360,9 +447,15 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
 
                 # 密函选择弹窗：能选的密函卡都没了（只剩 ⊘ 不使用）-> 这一栏开完了
                 if self._entered_mission and self.find_letter_interface() and self.letter_exhausted():
-                    self.log_info("这一栏的密函已经开完，回列表重新选择")
-                    self.leave_letter_start()
-                    return
+                    if self._letter_exhausted_since == 0:
+                        self._letter_exhausted_since = now
+                        self.log_info("密函卡那一条没读到持有数，先再确认一下（怕单次 OCR 漏读）")
+                    elif now - self._letter_exhausted_since >= LETTER_EXHAUSTED_CONFIRM_SECONDS:
+                        self.log_info("这一栏的密函已经开完，回列表重新选择")
+                        self.leave_to_board()
+                        return
+                else:
+                    self._letter_exhausted_since = 0
 
                 now = time.time()
                 # 至少要打过一局才认这个刷新时间：图2 那串倒计时只读得到一次，读错了不至于空转
@@ -381,11 +474,26 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                     return
 
                 if self._leave_after_rounds and self.find_result_again_btn():
-                    # 探险/扼守到点后又打完了这一轮次（结算界面）：回列表重新选
+                    # 到刷新时间了，且这一局也打完了（结算界面）：回列表重新选
                     self.log_info("本轮次打完（已到刷新时间），回列表重新选择")
                     self._leave_after_rounds = False
-                    self.leave_letter_start()
+                    self.leave_to_board()
                     return
+
+                if self._entered_mission and self.find_result_again_btn():
+                    # 一局结束（结算界面）：先把这一局算进"这一栏已打多少轮"
+                    if self.is_walk_mode():
+                        # 探险/扼守：一局里能打好几波，按 get_round_info 数到的轮次累加
+                        self.account_mission_rounds()
+                    else:
+                        # 驱离：没有「行动抉择」那种波次信号，一进结算界面就算打了一轮
+                        self.account_drive_away_round()
+                    # 累计到持有数上限就回列表，否则接着点「再次进行」打下一局
+                    if self.entry_rounds_full():
+                        self.log_info(f"这一栏已累计打满 {self._entry_rounds_done}/"
+                                      f"{self._entry_letter_count} 轮，撤离回列表重新选择")
+                        self.leave_to_board()
+                        return
 
                 if (not self._auto_rounds_off_confirmed and self.find_start_interface()
                         and now >= self._next_auto_rounds_check):
@@ -672,17 +780,24 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                     # 空窗期每十来秒就会重新挑一次，这条要去重，否则把日志刷满
                     self.log_onetime_info(f"[{column}] 持有数 {count}，没有密函可开")
                     continue
-                self.log_info(f"[{column}] 持有数 {count}，有「{name}」，进去开密函")
+                self.log_info(f"[{column}] 持有数 {count}，有「{name}」，"
+                              f"这一栏打 {count} 轮（打完就撤离回列表）")
                 # 点完就离开列表：缓存作废，避免下一圈还当成"在列表上"再点一次
                 self._board_cache = None
                 self._entered_mission = False
                 self._picked_drive_away = True
                 self._dungeon_mode = mode
+                # 记下这一栏的密函数量：每打一轮消耗一张，持有数不够配置轮次时按持有数收工
+                self._entry_letter_count = count
                 # 探险/扼守：每进一把都从 0 开始数轮次、下一局要重新走位
                 self._walked_this_mission = False
+                # 这一栏的持有数就是上限：打满就撤离回列表（回到列表会重新读最新的持有数）
+                self._entry_rounds_done = 0
                 self._leave_after_rounds = False
+                self.update_rounds_info()
                 self._auto_rounds_off_confirmed = False
                 self._next_auto_rounds_check = 0
+                self._letter_exhausted_since = 0
                 self.current_round = 0
                 self._round_counted = False
                 self._next_refresh_check = None
