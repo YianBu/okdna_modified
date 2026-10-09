@@ -55,7 +55,7 @@ LETTER_EXHAUSTED_CONFIRM_SECONDS = 2.0
 # 开关是那一行**右侧**的滑块（实拍：标题在 x957，亮色滑块 96x27 在 x1452-1548、
 # 和标题同一行；关的时候滑块挪到轨道左边、轨道变暗）。所以按现场 OCR 到的标题行 y，
 # 点固定的 x（1600x900 基准 1500）。
-AUTO_ROUNDS_RE = re.compile(r'轮次s*d+s*/s*d+')
+AUTO_ROUNDS_RE = re.compile(r'轮次\s*\d+\s*/\s*\d+')
 AUTO_ROUNDS_LABEL_RE = re.compile(r'自动轮次')
 # 「自动轮次」四个字在 1600x900 基准约 108px 宽；滑块中心在标题左边缘往右约 543px
 # （实拍：标题 x957 → 滑块中心 x1500）。实际分辨率下按标题实际宽度等比缩放。

@@ -17,10 +17,10 @@ logger = Logger.get_logger(__name__)
 #   loop:  False = 进本后整串按顺序放一遍就停（每开始新一轮再放一次）
 #          True  = 一直循环放；循环型每进一次主循环只走一步，这样循环期间还能继续判界面
 CHARACTER_ROTATIONS = {
-    # 止流：长按战技(2秒) -> 停1秒 -> 战技 -> 停1秒 -> 终结技，放一遍
+    # 止流：战技 -> 停1秒 -> 长按战技(1秒) -> 停1秒 -> 终结技，放一遍
     "止流": {
         "loop": False,
-        "steps": (("长按战技", 1.0), ("短按战技", 1.0), ("终结技", 1.0)),
+        "steps": (("短按战技", 1.0), ("长按战技", 1.0), ("终结技", 1.0)),
     },
     # 伊薇：战技*7（每个后面停1秒），放一遍
     "伊薇": {
@@ -51,12 +51,13 @@ CUSTOM_ACTIONS = {
 }
 
 # 「长按战技」按住的秒数
-COMBAT_LONG_PRESS = 2.0
+COMBAT_LONG_PRESS = 1.0
 # 一轮最多打多久（秒）：超了就主动退本、重开一轮（「超时时间」配置的默认值）
 ROUND_TIMEOUT_SECONDS = 180
 # 进本之后、放技能序列之前先稳多久（默认值，可在「进本等待(秒)」里改）：
 # 进关动画/落地收尾期间按键会被吃掉
-MISSION_SETTLE_DEFAULT = 0.6
+# 默认 0 秒：开局那 1 秒交给「挂机模式 = 开局向前走」的走位占掉（见 __init__）
+MISSION_SETTLE_DEFAULT = 0.0
 MISSION_SETTLE_KEY = "进本等待(秒)"
 # 角色手法里用到「重击」时的长按秒数（和「全局技能设定」的默认值保持一致）
 HEAVY_ATTACK_HOLD = 1.5
@@ -99,7 +100,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     """全自动「迷津」（肉鸽模式）。
 
     一轮的流程（按用户给的实拍图）：
-      模式首页「坠入深渊」-> 难度选择页「开始探索」-> 进本稳定 0.6 秒后放一次角色技能序列
+      模式首页「坠入深渊」-> 难度选择页「开始探索」-> 进本（默认先开局向前走 1 秒）后放一次角色技能序列
       -> 道具弹窗点空白处关闭 -> 打完一波按 ESC -> 菜单点「退出结算」
       -> 二次确认点「确定」-> 再点一次空白处关闭 -> 结算页点空白处关闭 -> 回到模式首页
 
@@ -128,6 +129,10 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         # 肉鸽里没有站在原地的空间，去掉「随机游走」这条用不上的配置
         self.default_config.pop("随机游走", None)
         self.config_description.pop("随机游走", None)
+
+        # 默认「开局向前走」1 秒：进本就按住 W 走一下，正好把进关动画那段
+        # 「按键会被吃掉」的时间占掉，所以「进本等待(秒)」默认给 0
+        self.default_config.update({"挂机模式": "开局向前走", "开局向前走": 1.0})
 
         # 进本后等几秒再放技能（进关动画期间按键会被吃掉）
         self.default_config.update({MISSION_SETTLE_KEY: MISSION_SETTLE_DEFAULT})
@@ -234,7 +239,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.click_text(COORD.MIJIN_START_EXPLORE, "mijin_start", TEXT_START)
 
     def handle_in_mission(self):
-        """局内：先按「挂机模式」处理一次位置（默认原地不动），再按角色手法放技能。"""
+        """局内：先按「挂机模式」处理一次位置（默认开局向前走 1 秒），再按角色手法放技能。"""
         if not self.move_on_begin():
             return
         if self.character_steps is None:

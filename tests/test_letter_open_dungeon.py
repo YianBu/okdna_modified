@@ -13,6 +13,7 @@ from ok.test.TaskTestCase import TaskTestCase
 from src.config import config
 from src.tasks.fullauto.AutoLetterOpenTask import (
     AutoLetterOpenTask,
+    AUTO_ROUNDS_RE,
     DEFAULT_ROUNDS,
     MODE_DRIVE,
     ROUND_CONFIG_KEYS,
@@ -182,6 +183,13 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.task.click_box_random = lambda target, **kw: clicks.append(target)
         self.assertTrue(self.task.ensure_auto_rounds_off(), '本来就是关的也算成功')
         self.assertEqual(clicks, [], '本来就是关的，不点')
+
+    def test_auto_rounds_regex_matches_round_line(self):
+        """「轮次x/99」的判据要真能匹配（曾经 \\d/\\s 被写成 d/s，永远匹配不到）。"""
+        self.assertTrue(AUTO_ROUNDS_RE.search('轮次1/99'))
+        self.assertTrue(AUTO_ROUNDS_RE.search('轮次 12/99'))
+        self.assertTrue(AUTO_ROUNDS_RE.search('轮次3/9'))
+        self.assertFalse(AUTO_ROUNDS_RE.search('自动轮次'), '只看得到标题、没有那行轮次时不算开着')
 
     def test_pick_skips_zero_count_column(self):
         """该栏持有数为 0 就跳过，换下一栏有本模式任务的。"""
