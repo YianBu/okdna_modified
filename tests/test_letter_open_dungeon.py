@@ -425,6 +425,23 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.task.handle_in_mission()
         self.assertFalse(self.task._round_counted, '回局内要允许下一次行动抉择再记一轮')
 
+    # ---- 行动抉择弹窗的「撤离」：图标判据失效时的文字兜底 ----
+
+    def test_find_retreat_button_by_hint_and_button(self):
+        """认弹窗上那行说明文字，再点它下面那个「撤离」（OCR 把撤认成撒也要认出来）。"""
+        self.task.ocr = lambda **kw: [
+            box(293, 378, '选择撤离则直接结算当前奖励', w=200, h=14),
+            box(330, 399, '撒离', w=52, h=23),
+        ]
+        found = self.task.find_retreat_button()
+        self.assertIsNotNone(found, '有说明文字 + 下面的撤离按钮，要认出来')
+        self.assertEqual(found.y, 399, '取说明文字下面那个按钮')
+
+    def test_find_retreat_button_none_without_hint(self):
+        """没有那行说明文字就不是行动抉择弹窗（别的界面也有「撤离」字样，别乱点）。"""
+        self.task.ocr = lambda **kw: [box(330, 399, '撤离', w=52, h=23)]
+        self.assertIsNone(self.task.find_retreat_button())
+
     def test_result_screen_resets_walk_flag(self):
         """结算界面出现 = 这一局结束：下一局（点「再次进行」）要重新判图 + 走位。"""
         self.task._walked_this_mission = True
@@ -533,10 +550,15 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.assertEqual(shown.get('轮次计算'), '0/?', '读不到持有数上限就显示 ?')
 
     def test_pick_records_column_count_as_cap(self):
+        shown = {}
+        self.task.info_set = lambda key, value: shown.__setitem__(key, value)
         ok, _ = self.pick(BOARD_OCR)
         self.assertTrue(ok)
         self.assertEqual(self.task._entry_letter_count, 815, '记下这一栏「持有数」当总上限')
         self.assertEqual(self.task._entry_rounds_done, 0, '这一栏累计轮次从头数')
+        self.assertEqual(self.task.current_round, 0, '当前轮次也归零')
+        self.assertEqual(shown.get('当前轮次'), 0, '信息栏「当前轮次」显示 0')
+        self.assertEqual(shown.get('轮次计算'), '0/815', '「轮次计算」从 0/上限 起')
 
     def test_stop_func_stops_at_configured_rounds(self):
         self.task.get_round_info = lambda: None

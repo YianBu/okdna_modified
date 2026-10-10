@@ -794,12 +794,16 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
                 # 这一栏的持有数就是上限：打满就撤离回列表（回到列表会重新读最新的持有数）
                 self._entry_rounds_done = 0
                 self._leave_after_rounds = False
-                self.update_rounds_info()
                 self._auto_rounds_off_confirmed = False
                 self._next_auto_rounds_check = 0
                 self._letter_exhausted_since = 0
                 self.current_round = 0
+                # 信息栏「当前轮次」也一起归零：不然撤离回列表后它还挂着上一栏的旧值，
+                # 要等下一波 get_round_info 才会更新。
+                self.info_set("当前轮次", 0)
                 self._round_counted = False
+                # 轮次计数归零之后再刷「轮次计算」（顺序反了会带上上一栏的旧轮次）
+                self.update_rounds_info()
                 self._next_refresh_check = None
                 # 进图2 之前先在图1 读一次刷新倒计时，图2 那串读不到时拿它兜底
                 seconds = self.read_refresh_countdown()

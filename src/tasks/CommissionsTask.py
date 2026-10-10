@@ -30,6 +30,12 @@ AUTO_ADVANCE_EXTRA_TIME = 2
 # 「放弃挑战」二次确认弹窗的文字（标题「退出委托」/ 正文「是否结束当前任务？」）：
 # 金圈判据认不出来时用它兜底，判"这一屏是二次确认弹窗"。
 GIVEUP_CONFIRM_RE = re.compile(r'退出委托|是否结束当前任务')
+# 行动抉择弹窗（每小波打完弹出的那个）的「撤离」：弹窗上有一行说明文字
+# 「选择撤离则直接结算当前奖励」，下面才是按钮。图标判据（DISCRIMINATORS 里的
+# ACTION_DIALOG_RETREAT）在实拍上偶尔匹配不上，就用这行文字当兜底判据。
+# 按钮文字 OCR 有时把「撤」认成「撒」，所以按钮正则两个都收。
+RETREAT_PANEL_HINT_RE = re.compile(r'选择撤离|直接结算')
+RETREAT_BUTTON_RE = re.compile(r'[撤撒]离')
 
 
 class Mission(Enum):
@@ -367,8 +373,6 @@ class CommissionsTask(BaseDNATask):
         行动抉择弹窗 -> 点「撤离」；二次确认弹窗 -> 点「确定」；局内菜单 -> 点「放弃挑战」；
         局内没菜单 -> 按一次 ESC 并**等菜单出来**（别盲按，盲按会把菜单又关掉）。
         """
-        if not self.in_team() and not self.find_esc_menu():
-            return True
         if self.find_action_dialog_retreat():
             self.click_ui_coord(COORD.ACTION_RETREAT, name="quit_mission", after_sleep=1)
             return False
@@ -378,10 +382,34 @@ class CommissionsTask(BaseDNATask):
         if self.find_esc_menu():
             self.click_ui_coord(COORD.ESC_GIVEUP, name="esc_giveup", after_sleep=0.6)
             return False
-        if self.in_team():
-            self.send_key("esc")
-            self.wait_until(self.find_esc_menu, time_out=3, raise_if_not_found=False)
+        # 行动抉择弹窗的「撤离」（点了就直接结算当前奖励）：图标判据没命中时的兜底，
+        # 用弹窗上那行说明文字 + 它下面的按钮现算点击位置。
+        # 图标判据（find_action_dialog_retreat）失效时漏了这一步，就只会一直 ESC 空转。
+        retreat = self.find_retreat_button()
+        if retreat is not None:
+            self._click_detected(retreat, name="retreat_panel", after_sleep=1)
+            return False
+        if not self.in_team():
+            return True
+        self.send_key("esc")
+        self.wait_until(self.find_esc_menu, time_out=3, raise_if_not_found=False)
         return False
+
+    def find_retreat_button(self):
+        """行动抉择弹窗的「撤离」按钮：返回它的 Box（没有则 None）。
+
+        这是 DISCRIMINATORS 里 ACTION_DIALOG_RETREAT 那个图标判据的**文字兜底**：实拍上
+        那个绿色门形图标有时匹配不上，于是整屏 OCR 找弹窗上那行说明文字
+        「选择撤离则直接结算当前奖励」，再取它下面"文本很短且带『撤/撒 + 离』"的那个框
+        （OCR 常把「撤」认成「撒」）—— 直接点 OCR 到的位置，不写死坐标。
+        """
+        texts = self.ocr(box=self.screen_box('FULL_SCREEN'), match=None)
+        hint = next((t for t in texts if RETREAT_PANEL_HINT_RE.search(t.name)), None)
+        if hint is None:
+            return None
+        buttons = [t for t in texts
+                   if t.y > hint.y and len(t.name.strip()) <= 3 and RETREAT_BUTTON_RE.search(t.name)]
+        return max(buttons, key=lambda t: t.y) if buttons else None
 
     def confirm_giveup_dialog(self):
         """当前这一屏是不是「放弃挑战」的二次确认弹窗。
