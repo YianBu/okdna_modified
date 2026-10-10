@@ -527,8 +527,8 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             self.log_info("放技能: 魔灵支援（键 %s）" % self.get_geniemon_key())
             self.send_key(self.get_geniemon_key())
         elif action == "普攻":
-            self.log_info("放技能: 普攻")
-            self.click()
+            self.log_info("放技能: 普攻（键 %s）" % self.get_normal_attack_key())
+            self.press_hotkey(self.get_normal_attack_key())
         elif action == "重击":
             self.log_info("放技能: 重击（按住 %.1f 秒）" % HEAVY_ATTACK_HOLD)
             self.mouse_down()

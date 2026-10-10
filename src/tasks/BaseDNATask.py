@@ -21,6 +21,17 @@ from ok.util.process import run_in_new_thread
 from src.dna_ui.Defs import DISCRIMINATORS, REF_WIDTH, REF_HEIGHT, SCREEN_BOX
 
 logger = Logger.get_logger(__name__)
+
+# 「游戏快捷键设置」（Game Hotkey Config）里普攻/射击的默认值：挂钩鼠标左键 / 鼠标右键。
+# 鼠标键支持中英两种写法（界面上显示中文），其余值一律按键盘键处理。
+NORMAL_ATTACK_KEY_DEFAULT = "鼠标左键"
+SHOOT_KEY_DEFAULT = "鼠标右键"
+MOUSE_HOTKEY_BUTTONS = {
+    "left": "left", "鼠标左键": "left", "左键": "left",
+    "right": "right", "鼠标右键": "right", "右键": "right",
+    "middle": "middle", "鼠标中键": "middle", "中键": "middle",
+}
+
 f_black_color = {
     'r': (0, 20),  # Red range
     'g': (0, 20),  # Green range
@@ -78,6 +89,8 @@ class BaseDNATask(BaseTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.key_config = self.get_global_config('Game Hotkey Config')  # 游戏热键配置
+        # 已经提示过"键名不合法"的热键值（同一个值只提醒一次，别刷屏）
+        self._bad_hotkeys = set()
         self.monthly_card_config = self.get_global_config('Monthly Card Config')
         self.afk_config = self.get_global_config('挂机设置')
         self.old_mouse_pos = None
@@ -612,6 +625,70 @@ class BaseDNATask(BaseTask):
             str: 螺旋飞跃的按键字符串。
         """
         return self.key_config['HelixLeap Key']
+
+    def get_normal_attack_key(self):
+        """获取普攻键（默认鼠标左键）。"""
+        return self.key_config.get('Normal Attack Key', NORMAL_ATTACK_KEY_DEFAULT)
+
+    def get_shoot_key(self):
+        """获取射击键（默认鼠标右键）。"""
+        return self.key_config.get('Shoot Key', SHOOT_KEY_DEFAULT)
+
+    def mouse_hotkey_button(self, key):
+        """热键值对应的鼠标键名（left / middle / right）；不是鼠标键时返回 None。"""
+        return MOUSE_HOTKEY_BUTTONS.get(str(key or '').strip().lower())
+
+    def is_mouse_hotkey(self, key):
+        """这个热键值是不是鼠标键（「鼠标左键」和 left 两种写法都认）。"""
+        return self.mouse_hotkey_button(key) is not None
+
+    def press_hotkey(self, key, down_time=0.02):
+        """按一下热键：值是鼠标键就点鼠标，否则按键盘键。
+
+        配置里手输的值先去首尾空格（否则 " e" 这种会被框架当成非法键）；键名还是不合法
+        就只提示一次、跳过这一次按键，不让 HotkeyConfigException 把整个任务打死。
+        """
+        key = str(key or '').strip()
+        button = self.mouse_hotkey_button(key)
+        if button:
+            return self.click(key=button, down_time=down_time)
+        if not self._hotkey_ok(key):
+            return False
+        return self.send_key(key, down_time=down_time)
+
+    def hotkey_down(self, key):
+        """按住热键（配合 hotkey_up 做长按）。"""
+        key = str(key or '').strip()
+        button = self.mouse_hotkey_button(key)
+        if button:
+            return self.mouse_down(key=button)
+        if not self._hotkey_ok(key):
+            return False
+        return self.send_key_down(key)
+
+    def hotkey_up(self, key):
+        """松开热键（配合 hotkey_down）。"""
+        key = str(key or '').strip()
+        button = self.mouse_hotkey_button(key)
+        if button:
+            return self.mouse_up(key=button)
+        if not self._hotkey_ok(key):
+            return False
+        return self.send_key_up(key)
+
+    def _hotkey_ok(self, key):
+        """键名框架能不能发；发不出去就提示一次（同一个值只提示一次）并跳过。"""
+        from ok.task.exceptions import HotkeyConfigException
+        try:
+            self.validate_key(key)
+        except HotkeyConfigException:
+            if key not in self._bad_hotkeys:
+                self._bad_hotkeys.add(key)
+                self.log_info_notify("游戏快捷键设置里的「%s」不是有效按键，这次按键已跳过"
+                                     "，请检查该配置项" % key)
+                self.soundBeep()
+            return False
+        return True
         
     def calculate_sensitivity(self, dx, dy, use_aim_sensitivity=False, original_Xsensitivity=1.0, original_Ysensitivity=1.0):
         """计算玩家水平鼠标移动值和垂直鼠标移动值,并且移动鼠标.

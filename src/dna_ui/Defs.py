@@ -26,6 +26,8 @@ class Ui:
     ESC_MENU_SETTINGS = 'esc_menu_settings'
     RESET_CONFIRM_OK = 'reset_confirm_ok'
     RESULT_AGAIN_BTN = 'result_again_btn'
+    HUNT_MOON_START = 'hunt_moon_start_icon'
+    HUNT_RESTART = 'hunt_moon_restart_icon'
 
 
 # label -> (搜索框 (x0,y0,x1,y1), 判据界面名, 说明)
@@ -65,6 +67,14 @@ DISCRIMINATORS = {
     Ui.RESULT_AGAIN_BTN: (
         (1027, 769, 1099, 835), 'result',
         '「再次进行」按钮左侧金色环形图标 -> 任务结算（5 张结算界面位置一致）'),
+    Ui.HUNT_MOON_START: (
+        (1155, 760, 1260, 858), 'hunt_moon',
+        '「开始挑战」按钮左边的城堡/门形图标 -> 狩月人之阶活动界面（起手判据：'
+        '不在这个界面就不开跑）。图标本身是图形、不带文字，六种语言通用'),
+    Ui.HUNT_RESTART: (
+        (565, 755, 640, 840), 'hunt_moon_result',
+        '结算页左下「重新开始」按钮左侧的金色环形箭头图标 -> 这一局打完了。'
+        '图标是图形、不带文字，六种语言通用；点它继续下一轮'),
 }
 
 
@@ -260,3 +270,7 @@ class COORD:
     MIJIN_ESC_EXIT = (1490, 847)          # 局内 ESC 菜单的「退出结算」
     MIJIN_EXIT_CONFIRM = (959, 528)       # 「退出委托」二次确认弹窗的「确定」
     MIJIN_CLOSE_POPUP = (74, 452)         # 「点击空白处关闭」时点的屏幕左边缘空白处
+
+    # ---- 狩月人之阶（巅峰赛）----
+    HUNT_START_CHALLENGE = (1403, 805)    # 活动界面「开始挑战」按钮中心
+    HUNT_RESULT_RESTART = (679, 792)      # 结算页「重新开始」按钮中心

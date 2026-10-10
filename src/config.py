@@ -16,6 +16,8 @@ key_config_option = ConfigOption(
         "Geniemon Key": "z",
         "Dodge Key": "lshift",
         "HelixLeap Key": "4",
+        "Normal Attack Key": "鼠标左键",  # 普攻，默认鼠标左键
+        "Shoot Key": "鼠标右键",          # 射击，默认鼠标右键
     },
     description="In Game Hotkey for Skills",
     config_type={"Interact Key": {"type": "drop_down", "options": ["f", "e"]}},
@@ -214,6 +216,7 @@ config = {
         ["src.tasks.fullauto.AutoMijinTask", "AutoMijinTask"],
         ["src.tasks.fullauto.AutoLetterOpenTask", "AutoLetterOpenTask"],
         ["src.tasks.fullauto.AutoTheatreTask", "AutoTheatreTask"],
+        ["src.tasks.fullauto.AutoHuntMoonTask", "AutoHuntMoonTask"],
         ["src.tasks.AutoSkill", "AutoSkill"],
         ["src.tasks.AutoGeneral", "AutoGeneral"],
         ["src.tasks.AutoDefence", "AutoDefence"],

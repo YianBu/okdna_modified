@@ -753,3 +753,33 @@ msgstr ""
 
 msgid "按这个键启动 / 停止本任务（游戏里也认，不用切回程序点按钮）：没在跑就启动，正在跑就停止，再按一次就是重跑并重新读一遍 JSON"
 msgstr ""
+
+msgid "自动狩月人之阶"
+msgstr ""
+
+msgid "不凹分，仅刷本"
+msgstr ""
+
+msgid "主控角色"
+msgstr ""
+
+msgid "松露"
+msgstr ""
+
+msgid "请进入狩月人之阶的活动界面"
+msgstr ""
+
+msgid "选哪个主控角色，就按它的手法放技能（走位和角色无关，所有角色一样）"
+msgstr ""
+
+msgid "选「自定义」时用：每一步写成「技能:等待秒数」，逗号分隔。例：终结技:1, 战技:1"
+msgstr ""
+
+msgid "法露茜"
+msgstr ""
+
+msgid "Normal Attack Key"
+msgstr "普攻键"
+
+msgid "Shoot Key"
+msgstr "射击键"

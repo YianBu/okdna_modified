@@ -52,9 +52,9 @@ class AutoCombatTask(BaseListenerTask, BaseCombatTask, TriggerTask):
                     char.send_ultimate_key()
                 elif skill == "按住普攻" and not _mouse_down:
                     _mouse_down = True
-                    self.mouse_down()
+                    self.hotkey_down(self.get_normal_attack_key())
                 elif skill == "普攻":
-                    char.click()
+                    self.press_hotkey(self.get_normal_attack_key())
                 self.sleep(interval)
             except CharDeadException:
                 self.log_error("Characters dead", notify=True)
@@ -65,7 +65,7 @@ class AutoCombatTask(BaseListenerTask, BaseCombatTask, TriggerTask):
 
         if ret:
             if _mouse_down:
-                self.mouse_up()
+                self.hotkey_up(self.get_normal_attack_key())
             self.combat_end()
         return ret
 

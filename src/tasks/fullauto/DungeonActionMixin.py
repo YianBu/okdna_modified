@@ -4,6 +4,7 @@
 
 * ``AutoLetterOpenTask``：自动开密函（探险 / 扼守模式）进本后执行；
 * ``AutoDungeonActionTestTask``：「测试」板块里的「行动逻辑测试」手动执行。
+* ``AutoExploration_Fast``：「自动探险/无尽」的判图与探险走位（地图选择也取自这张表）。
 
 地图表 / 选择函数在 ``DungeonActionLogic``；每张图的动作是本类里的 execute_* 方法。
 这里只放行为。用了 ``super()``，所以
@@ -16,7 +17,6 @@ import time
 from src.dna_ui.Defs import REF_WIDTH, REF_HEIGHT
 from src.tasks.AutoDefence import AutoDefence
 from src.tasks.AutoExploration import AutoExploration
-from src.tasks.fullauto.AutoExploration_Fast import AutoExploration_Fast
 from src.tasks.fullauto.DungeonActionLogic import (
     DUNGEON_MAPS,
     action_for_map,
@@ -191,7 +191,13 @@ class DungeonActionMixin:
             self.send_key_up("lshift")
 
     def try_solving_puzzle(self):
-        """原版解谜处理（迷宫 / 轮盘），被上面的探险行动函数调用。"""
+        """原版解谜处理（迷宫 / 轮盘），被上面的探险行动函数调用。
+
+        ``AutoExploration_Fast`` 也用这个 mixin，所以这里**延迟导入**它，避免
+        ``AutoExploration_Fast -> DungeonActionMixin -> AutoExploration_Fast`` 的循环导入。
+        """
+        from src.tasks.fullauto.AutoExploration_Fast import AutoExploration_Fast
+
         return AutoExploration_Fast.try_solving_puzzle(self)
 
     # ---- 开战判据：探险看血清、扼守看波次，都复用原版 ----

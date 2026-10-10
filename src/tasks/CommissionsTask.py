@@ -642,11 +642,11 @@ class CommissionsTask(BaseDNATask):
                     if off_conf > on_conf:
                         self.get_current_char().send_ultimate_key()
                     else:
-                        self.get_current_char().click()
+                        self.press_hotkey(self.get_normal_attack_key())
                 elif skill == "魔灵支援":
                     self.get_current_char().send_geniemon_key()
                 elif skill == "普攻":
-                    self.get_current_char().click()
+                    self.press_hotkey(self.get_normal_attack_key())
                 elif skill == "重击":
                     self.get_current_char().hold_normal_attack(
                         self.commission_skill_config.get("重击长按时间", 1.5))
