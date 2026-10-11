@@ -1,20 +1,25 @@
 # -*- coding: utf-8 -*-
 """全自动「狩月人之阶」（巅峰赛活动，**仅限巅峰赛**）。
 
-一轮的流程（按用户给的实拍图与口述）：
-  活动界面点「开始挑战」-> 进本加载（委托那套 in_team 判据）-> 走位（固定按键时序）
-  -> 走完直接按「主控角色」的手法放技能 -> 结算页（「挑战成功」/「挑战结束」两屏都有「重新开始」）
-  -> 点「重新开始」继续下一轮。
+一轮的流程：
+  活动界面点「开始挑战」（有「确认进入」弹窗就点它的「确定」）-> 进本加载 -> 左上角出现
+  金色菱形（关卡已加载）-> 稳 RUN_SETTLE 秒后按录制时间轴走位 -> 点一下鼠标中键锁定目标
+  -> 菱形变红 = 已开战 -> 按「主控角色」的序列放技能（法露茜：终结技 + 普攻 x4 + 战技一直循环）
+  -> 结算页（「挑战成功」/「挑战结束」上都有「重新开始」）
+  -> 点「重新开始」接着下一局，打满「打几次」结束（0 = 无限循环）。
 
 起手有讲究：本模块**只在「狩月人之阶」活动界面才能开始**。进任务先给
-ACTIVITY_INTERFACE_TIMEOUT 秒缓冲去找「开始挑战」左边那颗城堡/门形图标（图形、不带文字，
-六种语言通用），找不到就带系统提示停止（“请进入狩月人之阶的活动界面”），不会乱点。
+ACTIVITY_INTERFACE_TIMEOUT 秒缓冲去找「开始挑战」按钮里的 ◯ 图标，找不到就带系统提示
+停止（"请进入狩月人之阶的活动界面"），不会乱点。
 
-主控角色只决定“放什么技能”：走位是共用的一段固定时序，和选哪个角色无关，所以角色之间
-只差一张技能手法表（和「自动迷津」一样的写法）。
+失败自愈（照上游「自动狩月人」那份 AutoMoonHunterTask 的写法）：
+  * 战斗中菱形连续消失 NO_COMBAT_TIME_OUT 秒（掉线 / 卡读条 / 结算页被漏读）：重开一局；
+  * 连续失败 RESTART_FAILURE_LIMIT 次：报错停止，不再无限重开；
+  * 卡在加载/过场 LOAD_TIME_OUT 秒还认不出界面：报错停止，不空转；
+  * 点完「重新开始」会等结算页真的消失，免得重复点、重复计数。
 
-超时：「超时时间」默认 90 秒，一轮打太久就按 ESC 退本、回到结算页点「重新开始」重开；
-局数只计数、不设上限。
+技能按「主控角色」走：法露茜按它的手法（锁定后连按 3 下终结技，再一直普攻、每 3 秒连按两下战技）、
+「无」直接执行「全局技能设定」、「自定义」用「自定义序列」；走位、结算、重开期间不按技能。
 """
 
 from qfluentwidgets import FluentIcon
@@ -22,34 +27,100 @@ import re
 import time
 
 from ok import Logger, TaskDisabledException
-from src.dna_ui.Defs import COORD, Ui
+from src.dna_ui.Defs import COORD
 from src.tasks.DNAOneTimeTask import DNAOneTimeTask
 from src.tasks.CommissionsTask import CommissionsTask
 from src.tasks.BaseCombatTask import BaseCombatTask
 
 logger = Logger.get_logger(__name__)
 
+# ---- 界面判据 label（标注在 assets 的 coco 标注里，运行期从模板取）----
+# 和沉浸式戏剧一样，这些 label 的搜索框就是标注本身（框架按标注位置 ±0.4% 的方差搜），
+# 位置固定、框也很紧，所以不写进 Defs.DISCRIMINATORS；点击坐标统一放 Defs.COORD。
+START_BTN = 'syr_start_btn'                    # 活动界面「开始挑战」按钮里的 ◯ 图标（起手判据）
+HUD_START = 'syr_hud_start'                    # 局内左上角金色菱形：关卡已加载、还没开战
+HUD_FIGHT = 'syr_hud_fight'                    # 同一个菱形的战斗态标注，只做判据兜底
+RESULT_RESTART = 'syr_hud_restart'             # 结算页「重新开始」的环形箭头
+START_CONFIRM = 'start_screen_start_btn_3_1'   # 「确认进入」弹窗的「确定」（各模式共用）
+ESC_RETRY = 'esc_retry'                        # 局内菜单「重新开始」（和戏剧共用同一个菜单）
+RESTART_CONFIRM = 'esc_restart_check_btn'      # 「是否重新开始战斗」二次确认弹窗的「确定」
+
+# 「已开战」用的颜色框（Defs.SCREEN_BOX 里的名字）
+HUD_MARKER_BOX = 'SYR_HUD_MARKER'
+
+# 左上角菱形变红 = 已开战，**只看颜色**：金/红两个菱形是同一个控件、形状完全一样，
+# 去均值归一化的相关度会把绝对色差抵掉，靠模板分数分不开。红色占比实测（阈值 0.15）：
+#   未开战 0.0000 / 已开战 0.6154 / 活动页与结算页同位置 0.0000。
+SYR_MARKER_RED = {'r': (185, 255), 'g': (0, 120), 'b': (0, 120)}
+SYR_MARKER_RED_THRESHOLD = 0.15
+
+# 走位时间轴，录自 `mod\示例-脚本工具\回放和录制软件\scripts\map\custom\狩月人.json`
+# （12 个动作、总长 5.2047 秒（最后一步从录制里的 0.4571 改成了 0.40）；这份录制里没有 f12 热键）。时间点换算成"相对上一步的等待秒数"：
+#   (等待秒数, 按键, 按下/抬起)
+WALK_SCHEDULE = (
+    (0.5286, 'w', True),
+    (0.3853, 'shift', True),
+    (0.4403, 'shift', False),
+    (0.9652, 'shift', True),
+    (0.8642, 'shift', False),
+    (0.4469, 'shift', True),
+    (0.3370, 'shift', False),
+    (0.0844, 'w', False),
+    (0.0051, 'd', True),
+    (0.3361, 'shift', True),
+    (0.4116, 'shift', False),
+    (0.40, 'd', False),
+)
+# 走位期间按住 lalt 锁视角，免得防挂机的鼠标抖动把镜头带偏（其他全自动任务同样处理）
+WALK_HOLD_KEYS = ('lalt',)
+# shift 是录制里的冲刺键，也要松开：中途被打断时不能让它一直按着
+WALK_RELEASE_KEYS = ('w', 'a', 's', 'd', 'shift')
+
+# 关卡加载完之后先稳这么久再走位：判据刚出来时角色还在落地/过场收尾，按走位键会被吃掉
+RUN_SETTLE = 1
+# 走位完点一下鼠标中键锁定，锁定要一下才生效，稳这么久再往下。按太快那一下会被游戏
+# 吃掉（实测中键后 88ms 就按技能，没生效）。这是默认值，角色表里可以用 lock_settle 覆盖
+LOCK_SETTLE = 1.5
+# 起手判据的缓冲（秒）：进任务后最多找这么久，还没在「狩月人之阶」活动界面就提示停止
+ACTIVITY_INTERFACE_TIMEOUT = 2.0
+# 点了「开始挑战」/「重新开始」之后等离开当前界面、等进关卡加载完成的上限
+LOAD_TIME_OUT = 30
+# 加载/过场画面连续这么久都认不出来才报错停止：云游戏偶尔加载超过 30 秒（实测有），
+# 那期间只存一张截图 + 提示 + 继续等，别把这一整局白丢掉
+UNKNOWN_SCREEN_GIVE_UP = 180
+# 兜底：红菱形连续消失这么久（掉线、卡在读条、结算页被漏读）才算没在战斗：ESC 重开一局
+NO_COMBAT_TIME_OUT = 30
+# 连续失败（开不了战 / 结算点不动）几次后报错停止。配置里只留「打几次」，这个用内部常量
+RESTART_FAILURE_LIMIT = 3
+
 # 「主控角色」-> 该角色的技能手法：
-#   steps: ((动作, 放完之后等几秒), ...)，动作取值沿用「全局技能设定」那套
-#          （短按战技 / 长按战技 / 终结技 / 魔灵支援 / 普攻 / 重击）
-#   loop:  True  = 一直循环放；循环型每进一次主循环只走一步，循环期间还能继续判界面
-#          False = 进本整串放一遍就停
-# 目前只加了用户点名的「松露」：只放终结技。以后新增角色往这张表里加就行。
+#   lock_settle: 可选。锁定目标后先等几秒（覆盖 LOCK_SETTLE 的默认值）
+#   opening: 可选。锁定后先放一遍（只放一次），放完再接下面的手法；不写就是没有开场
+#   spam + timed: 可选，"按真实时间"的循环手法（和 steps 二选一）：
+#     spam  = "普攻"（一直按，不加额外间隔）或 (动作, 最小间隔秒数)
+#     timed = ((间隔秒数, (动作, ...)), ...)：每隔这么多秒，把这一组动作连着按完
+#             例：spam 普攻 + timed 每 3 秒连按两下战技
+#   steps:   ((动作, 放完之后等几秒), ...)，动作取值沿用「全局技能设定」那套
+#            （短按战技 / 长按战技 / 终结技 / 魔灵支援 / 普攻 / 重击）
+#   loop:    True  = steps 一直循环放；循环型每进一次主循环只走一步，循环期间还能继续判界面
+#            False = steps 整串放一遍就停
+# 走位和主控角色无关（所有角色共用上面那段录制时序），角色之间只差这张表。
 CHARACTER_ROTATIONS = {
-    # 松露：进本只放一次终结技（不循环）
-    "松露": {"loop": False, "steps": (("终结技", 1.0),)},
-    # 法露茜：2eeee1 + eeee1 = 终结技 -> 普攻 x4 -> 战技 -> 普攻 x4 -> 战技，进本放一遍
-    # 间隔：终结技到第一次普攻 1 秒，其余每个操作之间 0.5 秒
-    "法露茜": {"loop": False, "steps": (("终结技", 1.0), ("普攻", 0.5), ("普攻", 0.5),
-                                        ("普攻", 0.5), ("普攻", 0.5), ("短按战技", 0.5),
-                                        ("普攻", 0.5), ("普攻", 0.5), ("普攻", 0.5),
-                                        ("普攻", 0.5), ("短按战技", 0.5))},
+    # 法露茜：锁定后稳 0.5 秒 -> 连按 3 下终结技（冷却中游戏会忽略；哪一下被吃掉，
+    # 后面两下补上），然后一直连按普攻、每 3 秒连按两下战技。
+    # 最后一个终结技后留 1 秒再进普攻，免得终结技演出没走完、普攻那下被吃掉。
+    "法露茜": {"lock_settle": 0.5,
+               "opening": (("终结技", 0.1), ("终结技", 0.1), ("终结技", 1.0)),
+               "spam": "普攻",
+               "timed": ((3.0, ("短按战技", "短按战技")),)},
 }
 
-# 默认主控角色 = 表里的第一个
-DEFAULT_CHARACTER = next(iter(CHARACTER_ROTATIONS))
+# 「无」：不套角色手法，直接执行「全局技能设定」的技能配置
+NO_CHARACTER = "无"
 # 「自定义」：技能与等待全由用户自己写（见「自定义序列」）
 CUSTOM_CHARACTER = "自定义"
+# 默认主控角色 = 无（不套角色手法，用全局技能配置）
+DEFAULT_CHARACTER = NO_CHARACTER
 CUSTOM_SEQUENCE_KEY = "自定义序列"
 DEFAULT_CUSTOM_SEQUENCE = "终结技:1"
 # 自定义序列里允许的动作名（战技 = 短按），和 release_character_action 的分支一一对应
@@ -65,28 +136,15 @@ CUSTOM_ACTIONS = {
 # 「长按战技」按住的秒数、「重击」按住左键的秒数（和「全局技能设定」的默认值一致）
 COMBAT_LONG_PRESS = 1.0
 HEAVY_ATTACK_HOLD = 1.5
-
-# 起手判据的缓冲（秒）：进任务后最多找这么久，还没在「狩月人之阶」活动界面就提示停止
-ACTIVITY_INTERFACE_TIMEOUT = 2.0
-# 进本后先稳这么久再走位（照「自动沉浸式戏剧」的 FIRST_LAYER_SETTLE）：判据刚成立时
-# 角色还在落地/过场收尾，这时候按走位键会被吃掉前面一段（表现就是走位变短、走不到位置）
-ENTER_SETTLE_SECONDS = 1.0
-# 走位：进本后按顺序按这些键 (key, 按住秒数)。走完就直接进技能序列，不再"前进到开战"
-WALK_SEQUENCE = (("w", 4.5), ("d", 2.2), ("w", 3.6))
-# 「超时时间」配置：一轮（点「开始挑战」/「重新开始」到进结算页）最多打多少秒；超了就按
-# ESC 退本（和「自动迷津」等任务超时的做法一样），回到结算页再点「重新开始」重开
-TIMEOUT_KEY = "超时时间"
-TIMEOUT_DEFAULT = 90
-# 超时后按 ESC 的重试间隔（秒）：云游戏丢键时那一脚可能没生效，隔几秒再补一脚
-TIMEOUT_ESC_INTERVAL = 5.0
-# 结算页判据：左下「重新开始」按钮左侧那颗金色环形箭头图标（图形判据，不依赖 OCR）
+# timed 那一组里"连按几下"的间隔（比如连按两下战技，中间隔这么久）
+TIMED_BURST_GAP = 0.1
 
 
 class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     """全自动「狩月人之阶」：活动界面点开始 -> 走位开战 -> 按主控角色放技能 -> 结算重开。
 
     只在「狩月人之阶」活动界面才启动（起手判据见 ensure_activity_interface）；
-    一局打完（结算页出现「重新开始」）点它继续，局数只计数、不设上限。
+    失败自愈（局内重开 / 失败上限 / 认不出界面报错 / 等结算页消失）见模块开头的说明。
     """
 
     def __init__(self, *args, **kwargs):
@@ -97,34 +155,38 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.group_name = "全自动（特殊）"
         self.group_icon = FluentIcon.GAME
 
+        # 这个模式没有轮次、战斗超时，也没有「挂机模式」那套移动/复位配置：只有打几次
         self.default_config.update({
-            TIMEOUT_KEY: TIMEOUT_DEFAULT,
+            "打几次": 0,
             "主控角色": DEFAULT_CHARACTER,
             CUSTOM_SEQUENCE_KEY: DEFAULT_CUSTOM_SEQUENCE,
         })
         self.config_type["主控角色"] = {
             "type": "drop_down",
-            "options": list(CHARACTER_ROTATIONS) + [CUSTOM_CHARACTER],
+            "options": list(CHARACTER_ROTATIONS) + [NO_CHARACTER, CUSTOM_CHARACTER],
         }
         self.config_description.update({
-            "主控角色": "选哪个主控角色，就按它的手法放技能（走位和角色无关，所有角色一样）",
+            "打几次": "打几次，0 = 无限循环",
+            "主控角色": "选角色就按它的手法放技能；选「无」不套手法、直接执行「全局技能设定」"
+                          "（走位和主控角色无关）",
             CUSTOM_SEQUENCE_KEY: "选「自定义」时用：每一步写成「技能:等待秒数」，逗号分隔。"
                                  "例：终结技:1, 战技:1",
-            TIMEOUT_KEY: "超时后将重启任务",
         })
 
-        # 云游戏实拍帧糊、模板分低，给足重试轮次
-        self.action_timeout = 20
         self.character_steps = None
+        self.character_spam = None
+        self.character_timed = ()
+        self.timed_next = []
+        self.lock_settle = LOCK_SETTLE
+        self.character_opening = ()
         self.character_loops = False
+        self.opening_done = False
         self.fallback_skill_tick = None
         self.step_index = 0
         self.sequence_done = False
-        self.walked = False
-        self.rounds = 0
-        self.result_handled = False
-        self.round_start_time = 0.0
-        self.next_timeout_esc = 0.0
+        self.mission_started = False
+        self.current_run = 0
+        self.run_failures = 0
 
     def run(self):
         DNAOneTimeTask.run(self)
@@ -139,155 +201,300 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             raise
 
     # ------------------------------------------------------------------
-    # 主循环
+    # 生命周期
     # ------------------------------------------------------------------
 
     def do_run(self):
+        """主循环：看画面属于哪个界面就处理哪个，打满「打几次」正常返回。
+
+        起手必须停在「狩月人之阶」活动界面（起手判据）；中途的加载/过场画面只是等一下。
+        """
         self.load_char()
         if not self.ensure_activity_interface():
             self.log_info_notify("请进入狩月人之阶的活动界面")
             self.soundBeep()
             raise TaskDisabledException
         self.setup_character()
-        self.rounds = 0
-        self.result_handled = False
-        # 停一次再开就是全新一轮：超时计时从 0 起（任务实例是复用的，别留上一轮的账）
-        self.round_start_time = 0.0
-        self.next_timeout_esc = 0.0
-        self.reset_mission_state()
-        self.info_set("局数", "0")
+        self.init_all()
         while True:
             self.next_frame()
-            if self.round_timed_out():
-                # 一轮打太久（卡住/云游戏丢键）：按 ESC 退本，回结算页再点「重新开始」重开
-                self.handle_timeout()
-                continue
-            if self.find_result_interface():
-                # 结算页：这一局打完了（只处理一次，免得同一屏被数成好几局）
-                if not self.result_handled:
-                    self.handle_result()
-            elif self.find_activity_interface():
-                self.result_handled = False
-                self.handle_start_challenge()
-            elif self.in_team():
-                self.result_handled = False
+            if self.find_one(START_BTN):
+                self.start_mission()
+            elif self.find_one(RESULT_RESTART):
+                if self.handle_result():
+                    return
+            elif self.in_moon_hunter_mission():
                 self.handle_in_mission()
             else:
-                # 加载中 / 过场动画：等下一轮
-                self.sleep(0.3)
-
-    def handle_start_challenge(self):
-        """活动界面：点「开始挑战」开一局。"""
-        self.log_info("在「狩月人之阶」活动界面，点「开始挑战」")
-        self.reset_mission_state()
-        self.round_start_time = time.time()
-        self.click_ui_coord(COORD.HUNT_START_CHALLENGE, name="hunt_moon_start",
-                            after_sleep=1.0)
-
-    def handle_result(self):
-        """结算页：点「重新开始」继续下一轮，局数 +1。"""
-        self.result_handled = True
-        self.rounds += 1
-        self.info_set("局数", str(self.rounds))
-        self.log_info("第 %d 局结束（出现「重新开始」），点它继续" % self.rounds)
-        self.reset_mission_state()
-        self.round_start_time = time.time()
-        self.click_ui_coord(COORD.HUNT_RESULT_RESTART, name="hunt_moon_restart",
-                            after_sleep=1.0)
-
-    def handle_in_mission(self):
-        """局内：先走位（一局一次），再按「主控角色」的手法放技能。"""
-        if not self.walked:
-            self.walked = True
-            # 进本判据刚成立时人还在落地/过场收尾，先稳住再走位（照自动沉浸式戏剧）
-            self.log_info("进本稳定 %.1f 秒后开始走位" % ENTER_SETTLE_SECONDS)
-            self.sleep(ENTER_SETTLE_SECONDS)
-            self.walk_current_mission()
-        if self.character_steps is None:
-            # 配置里的角色名没有对应手法：退回全局技能计时器，保证任务还能跑起来
-            if self.fallback_skill_tick is not None:
-                self.fallback_skill_tick()
-            return
-        self.run_character_skill()
-
-    def reset_mission_state(self):
-        """一局的局内状态：走位跑过没、技能序列放过没。"""
-        self.walked = False
-        self.sequence_done = False
-        self.step_index = 0
-
-    # ------------------------------------------------------------------
-    # 起手判据 / 局内判据
-    # ------------------------------------------------------------------
-
-    def find_activity_interface(self):
-        """是不是在「狩月人之阶」活动界面（认「开始挑战」左边那颗城堡/门形图标）。"""
-        return self.find_ui(Ui.HUNT_MOON_START, threshold=0.8) is not None
+                self.wait_screen_back()
+            self.sleep(0.2)
 
     def ensure_activity_interface(self):
         """起手：给 ACTIVITY_INTERFACE_TIMEOUT 秒缓冲找活动界面，找不到返回 False。"""
         deadline = time.time() + ACTIVITY_INTERFACE_TIMEOUT
         while True:
             self.next_frame()
-            if self.find_activity_interface():
+            if self.find_one(START_BTN, threshold=0.8) is not None:
                 self.log_info("已在「狩月人之阶」活动界面，开始执行")
                 return True
             if time.time() >= deadline:
                 return False
             self.sleep(0.2)
 
-    def find_result_interface(self):
-        """结算页判据：左下「重新开始」按钮左侧那颗金色环形箭头图标。
+    def init_all(self):
+        """每次启动都从头开始：计数清零、这一局还没走位、技能序列还没放。"""
+        self.current_run = 0
+        self.run_failures = 0
+        self.mission_started = False
+        self.reset_sequence_state()
 
-        「挑战成功」和「挑战结束」两屏用的是同一个按钮，所以一个判据管两屏。
+    def wait_screen_back(self, time_out=LOAD_TIME_OUT):
+        """卡在加载/过场画面：等认出下一个界面。
+
+        每等满 time_out 秒还认不出来：第一次存一张截图，然后响一下、提示一条，继续等。
+        连续 UNKNOWN_SCREEN_GIVE_UP 秒都认不出来才报错停止 —— 云游戏加载慢时不会再把
+        这一局白丢掉；真卡在别的界面上，截图（screenshots/hunt_moon_unknown_screen）
+        和日志能直接看出来。
         """
-        return self.find_ui(Ui.HUNT_RESTART, threshold=0.8) is not None
+        self.log_info('等待界面切换（加载/过场）...')
+        start = time.time()
+        next_warn = start + time_out
+        shot = False
+        while True:
+            self.sleep(0.5)
+            if self.known_screen():
+                return
+            now = time.time()
+            if now >= next_warn:
+                next_warn = now + time_out
+                if not shot:
+                    shot = True
+                    self.screenshot(name='hunt_moon_unknown_screen')
+                self.soundBeep()
+                self.log_info_notify(f'已等了 {int(now - start)} 秒还认不出当前界面，继续等'
+                                     f'（截图见 screenshots/hunt_moon_unknown_screen）')
+            if now - start >= UNKNOWN_SCREEN_GIVE_UP:
+                raise Exception(f'连续 {UNKNOWN_SCREEN_GIVE_UP} 秒认不出当前界面，停止任务'
+                                f'（截图见 screenshots/hunt_moon_unknown_screen）')
 
-    # ------------------------------------------------------------------
-    # 超时兜底
-    # ------------------------------------------------------------------
-
-    def round_timeout(self):
-        """「超时时间」配置：一轮最多打多少秒。"""
+    def target_runs(self):
+        """读「打几次」配置：0 表示无限循环，读不出来也当无限。"""
         try:
-            return max(1, int(self.config.get(TIMEOUT_KEY, TIMEOUT_DEFAULT)))
+            return max(0, int(self.config.get('打几次', 0)))
         except (TypeError, ValueError):
-            return TIMEOUT_DEFAULT
+            return 0
 
-    def round_timed_out(self):
-        """这一轮是不是打太久了（「超时时间」秒内还没进结算页）。"""
-        if not self.round_start_time:
-            return False
-        return time.time() - self.round_start_time >= self.round_timeout()
+    def note_failure(self, reason):
+        """记一次连续失败：超过上限就报错停止（配置里只有「打几次」，上限用内部常量）。"""
+        self.run_failures += 1
+        if self.run_failures > RESTART_FAILURE_LIMIT:
+            raise Exception(f'连续 {self.run_failures} 次{reason}，停止任务')
+        self.log_info(f'{reason}（第 {self.run_failures} 次，最多 {RESTART_FAILURE_LIMIT} 次），'
+                      f'ESC 重新开始')
 
-    def handle_timeout(self):
-        """超时兜底：按 ESC 退本（和「自动迷津」等任务一样），再回结算页点「重新开始」。
+    # ------------------------------------------------------------------
+    # 界面判据
+    # ------------------------------------------------------------------
 
-        云游戏丢键时那一脚 ESC 可能没生效，所以每 TIMEOUT_ESC_INTERVAL 秒重试一次，
-        直到这一轮真的结束（结算页出现 -> handle_result 重新计时）。
+    def known_screen(self):
+        """是不是一个能开工的界面（活动界面 / 结算页 / 局内）。"""
+        return (self.find_one(START_BTN) is not None
+                or self.find_one(RESULT_RESTART) is not None
+                or self.in_moon_hunter_mission())
+
+    def in_moon_hunter_mission(self):
+        """是不是在局内（局内菜单盖在 HUD 上时也算）。"""
+        return self.in_team() or self.find_one(ESC_RETRY) is not None
+
+    def find_hud_marker(self):
+        """左上角那颗菱形（金/红都在同一个位置）。
+
+        命中就代表"关卡已经加载完、可以开始走位"；局内菜单和结算页都不命中。
         """
-        now = time.time()
-        if now < self.next_timeout_esc:
+        return self.find_one(HUD_START) or self.find_one(HUD_FIGHT)
+
+    def is_in_combat(self):
+        """左上角菱形变红 = 已开战（只看颜色，和界面语言、背景明暗都无关）。
+
+        位置优先用菱形模板（只截菱形内部、不含背景，亮暗场景都能命中），没匹上就退回固定框 ——
+        模板在明亮场景里会失手，差一点点就会把"已开战"漏判成没开战（表现：明明在打，
+        却按"没进战斗"处理，几十秒后误判成超时重开一局）。
+        """
+        box = self.find_hud_marker() or self.screen_box(HUD_MARKER_BOX)
+        return self.calculate_color_percentage(SYR_MARKER_RED, box) > SYR_MARKER_RED_THRESHOLD
+
+    # ------------------------------------------------------------------
+    # 活动界面
+    # ------------------------------------------------------------------
+
+    def left_start_screen(self):
+        """已经不在活动界面（无论在加载还是已经进图）。"""
+        return self.find_one(START_BTN) is None and self.find_one(START_CONFIRM) is None
+
+    def start_mission(self, time_out=LOAD_TIME_OUT):
+        """活动界面：点「开始挑战」，有「确认进入」弹窗就点「确定」，然后等离开这个界面。
+
+        弹窗不是每次都有（游戏里能设成不再提示），而且弹窗一盖上来「开始挑战」就被压暗到
+        认不出来 —— 所以"弹窗出现"和"已经进图"都算这一步走通，谁先到算谁。
+        云游戏会丢点击，所以点一次没动静就再点一次（间隔 1 秒）。
+        """
+        def confirm_or_left():
+            return self.find_one(START_CONFIRM) is not None or self.left_start_screen()
+
+        if not self.wait_until(confirm_or_left, time_out=time_out,
+                               post_action=lambda: self.click_ui_coord(
+                                   COORD.SYR_START, name=START_BTN, after_sleep=1),
+                               raise_if_not_found=False):
+            raise Exception(f'点了「开始挑战」之后 {time_out} 秒还停在活动界面'
+                            f'（门票/体力不足或点击没生效）')
+        if self.find_one(START_CONFIRM):
+            if not self.wait_until(self.left_start_screen, time_out=time_out,
+                                   post_action=lambda: self.click_ui_coord(
+                                       COORD.START_CONFIRM, name=START_CONFIRM, after_sleep=1),
+                                   raise_if_not_found=False):
+                raise Exception('点了「确认进入」的「确定」之后没能进关卡（门票/体力不足？）')
+
+    # ------------------------------------------------------------------
+    # 局内：等加载 -> 走位 -> 打到结算页
+    # ------------------------------------------------------------------
+
+    def handle_in_mission(self):
+        """局内一次处理：走位触发战斗，然后一直打到结算页或需要重开一局。"""
+        if self.find_one(ESC_RETRY):
+            # 局内菜单被打开了（一般是玩家自己按的 ESC）：关掉继续，绝不在这里点菜单
+            self.send_key("esc", after_sleep=0.5)
             return
-        self.next_timeout_esc = now + TIMEOUT_ESC_INTERVAL
-        self.log_info("本轮已打 %d 秒（超时时间 %d 秒），按 ESC 退本重开"
-                      % (now - self.round_start_time, self.round_timeout()))
-        self.soundBeep()
-        self.send_key("esc", after_sleep=0.5)
+        if not self.mission_started:
+            self.wait_mission_loaded()
+            self.sleep(RUN_SETTLE)
+            self.mission_started = True
+            self.reset_sequence_state()
+            self.play_walk()
+            # 走位走完点一下鼠标中键锁定目标，之后才进技能序列；锁定要一下才生效，
+            # 稳 lock_settle 秒再往下（默认 1.5 秒，法露茜 0.5 秒）
+            self.log_info("走位结束，点鼠标中键锁定目标，稳 %.1f 秒" % self.lock_settle)
+            self.middle_click()
+            self.sleep(self.lock_settle)
+        # 不再单独"等开战"：直接进开打循环，技能由里面的"菱形变红"判断控制
+        if not self.fight_until_result():
+            # 红菱形长时间不在（掉线、卡在读条）：已经重开了一局，退回重新走位
+            self.mission_started = False
 
-    # ------------------------------------------------------------------
-    # 走位（所有主控角色共用同一段）
-    # ------------------------------------------------------------------
+    def wait_mission_loaded(self, time_out=LOAD_TIME_OUT):
+        """等关卡加载完：左上角菱形或者通用局内 HUD（左下角 Lv）出来都算。
 
-    def walk_current_mission(self):
-        """进本走位：按 WALK_SEQUENCE 的固定时序走一遍就结束（不再「前进到开战」）。
-
-        这段和主控角色无关（用户要求），所以不放进角色表里；走完直接进技能序列。
+        带上 in_team() 兜底是必须的：菱形模板在明亮的关卡场景里会失手，
+        只用它会在那种关卡误报"没进关卡"。
         """
+        if not self.wait_until(lambda: self.find_hud_marker() is not None or self.in_team(),
+                               time_out=time_out, raise_if_not_found=False):
+            raise Exception(f'等了 {time_out} 秒还没进关卡（门票/体力不足或掉线？）')
+
+    def play_walk(self):
+        """按录制时间轴走位；全程按住 lalt 锁视角，不管成功失败都松开所有按键。"""
         self.log_info("开始走位")
-        for key, seconds in WALK_SEQUENCE:
-            self.send_key(key, down_time=seconds)
+        for key in WALK_HOLD_KEYS:
+            self.send_key_down(key)
+        try:
+            for wait, key, down in WALK_SCHEDULE:
+                self.sleep(wait)
+                if down:
+                    self.send_key_down(key)
+                else:
+                    self.send_key_up(key)
+        finally:
+            for key in WALK_RELEASE_KEYS:
+                self.send_key_up(key)
+            for key in WALK_HOLD_KEYS:
+                self.send_key_up(key)
         self.log_info("走位结束")
+
+    def fight_until_result(self):
+        """挂机。返回 True = 结算页出现（这一局打完），False = 该重开一局。
+
+        红菱形闪一下不算"没进战斗"（判据在实机上会闪）：只有连续消失 NO_COMBAT_TIME_OUT 秒
+        （掉线、卡在读条、结算页被漏读后停在加载画面）才算没在战斗 —— 重开一局。
+        """
+        no_combat_since = None
+        while True:
+            self.next_frame()
+            if self.find_one(RESULT_RESTART):
+                return True
+            if self.find_one(ESC_RETRY):
+                # 局内菜单被打开了（一般是玩家自己按的 ESC）：关掉继续，绝不在这里点菜单
+                self.send_key("esc", after_sleep=0.5)
+                continue
+            in_combat = self.is_in_combat()
+            if in_combat:
+                no_combat_since = None
+                self.run_failures = 0
+                self.play_character_sequence()
+            elif no_combat_since is None:
+                no_combat_since = time.time()
+            elif time.time() - no_combat_since > NO_COMBAT_TIME_OUT:
+                self.note_failure(f'{NO_COMBAT_TIME_OUT} 秒没进战斗')
+                self.restart_in_mission()
+                return False
+            self.sleep(0.2)
+
+    def restart_in_mission(self, time_out=10, load_time_out=LOAD_TIME_OUT):
+        """局内重来：ESC 开菜单 -> 点「重新开始」-> 点二次确认的「确定」。
+
+        两个都是云游戏爱丢的点击，所以都是"点到出结果为止"：先点到弹窗出来，再点到弹窗消失。
+        重开会把关卡重新加载一遍，菜单/弹窗/加载画面都会盖掉菱形判据，所以"先消失再回来"
+        正好当重开完成的信号；万一它没消失（秒重开）也不会卡住，直接往下走。
+        """
+        start = time.time()
+        while not self.find_one(ESC_RETRY):
+            if time.time() - start > time_out:
+                raise Exception('局内菜单打不开，没法重新开始')
+            self.send_key("esc")
+            self.wait_until(lambda: self.find_one(ESC_RETRY) is not None, time_out=2,
+                            raise_if_not_found=False)
+        self.wait_until(
+            condition=lambda: self.find_one(RESTART_CONFIRM) is not None,
+            post_action=lambda: self.click_ui_coord(COORD.ESC_MENU_RETRY, name=ESC_RETRY,
+                                                    after_sleep=0.5),
+            time_out=time_out,
+        )
+        self.wait_until(
+            condition=lambda: not self.find_one(RESTART_CONFIRM),
+            post_action=lambda: self.click_ui_coord(COORD.ESC_MENU_RETRY_CONFIRM,
+                                                    name=RESTART_CONFIRM, after_sleep=0.5),
+            time_out=time_out,
+        )
+        # 弹窗没了不等于真重开了：局内菜单必须也关掉，否则走位键全打进菜单里。
+        # 云游戏丢那一下点击时就是这种情况：菜单还开着，可 in_team() 已经是真，
+        # wait_mission_loaded() 会立刻放行 -> 后面每一步都失败。
+        if not self.wait_until(lambda: self.find_one(ESC_RETRY) is None, time_out=time_out,
+                               raise_if_not_found=False):
+            raise Exception('点了「重新开始」之后局内菜单一直没关掉，停止任务')
+        self.wait_mission_loaded(time_out=load_time_out)
+
+    # ------------------------------------------------------------------
+    # 结算页
+    # ------------------------------------------------------------------
+
+    def handle_result(self):
+        """结算页：点「重新开始」直接开下一局。返回是否该结束任务。"""
+        self.mission_started = False
+        self.run_failures = 0
+        self.current_run += 1
+        self.info_set("局数", str(self.current_run))
+        self.log_info(f'第 {self.current_run} 局完成')
+        target = self.target_runs()
+        if target and self.current_run >= target:
+            self.log_info(f'已经打满 {target} 局，任务结束')
+            return True
+        self.click_ui_coord(COORD.SYR_RESTART, name=RESULT_RESTART, after_sleep=1)
+        self.wait_left_result()
+        return False
+
+    def wait_left_result(self, time_out=LOAD_TIME_OUT):
+        """点了「重新开始」之后等离开结算页，免得下一轮又点一次。"""
+        if not self.wait_until(lambda: self.find_one(RESULT_RESTART) is None,
+                               time_out=time_out, raise_if_not_found=False):
+            raise Exception(f'点了「重新开始」之后 {time_out} 秒还停在结算页（门票/体力不足？）')
 
     # ------------------------------------------------------------------
     # 主控角色手法（和「自动迷津」同一套写法）
@@ -305,20 +512,44 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
                 self.log_info("自定义技能序列: %s"
                               % " -> ".join("%s后等%.1f秒" % step for step in steps))
                 self.character_steps = steps
+                self.character_spam = None
+                self.character_timed = ()
+                self.lock_settle = LOCK_SETTLE
+                self.character_opening = ()
                 self.character_loops = False
                 self.fallback_skill_tick = None
                 return
             self.log_info("「%s」没解析出任何步骤，改用「%s」"
                           % (CUSTOM_SEQUENCE_KEY, DEFAULT_CHARACTER))
             name = DEFAULT_CHARACTER
+        if name == NO_CHARACTER:
+            self.log_info("主控角色「%s」：直接执行「全局技能设定」的技能配置" % NO_CHARACTER)
+            self.character_steps = None
+            self.character_spam = None
+            self.character_timed = ()
+            self.lock_settle = LOCK_SETTLE
+            self.character_opening = ()
+            self.character_loops = False
+            self.fallback_skill_tick = self.create_skill_ticker()
+            return
         rotation = CHARACTER_ROTATIONS.get(name)
         if rotation is None:
             self.log_info("没有「%s」的技能手法，退回全局技能计时器" % name)
             self.character_steps = None
+            self.character_spam = None
+            self.character_timed = ()
+            self.lock_settle = LOCK_SETTLE
+            self.character_opening = ()
             self.character_loops = False
             self.fallback_skill_tick = self.create_skill_ticker()
         else:
-            self.character_steps = rotation["steps"]
+            self.character_steps = rotation.get("steps")
+            spam = rotation.get("spam")
+            # spam 可以写 "普攻"（一直按、不加额外间隔），也可以写 (动作, 间隔秒数)
+            self.character_spam = (spam, 0.0) if isinstance(spam, str) else spam
+            self.character_timed = rotation.get("timed") or ()
+            self.lock_settle = float(rotation.get("lock_settle", LOCK_SETTLE))
+            self.character_opening = rotation.get("opening") or ()
             self.character_loops = bool(rotation.get("loop", False))
             self.fallback_skill_tick = None
 
@@ -347,17 +578,44 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             steps.append((action, max(0.0, wait)))
         return tuple(steps)
 
-    def run_character_skill(self):
-        """按「主控角色」的手法放技能。
+    def reset_sequence_state(self):
+        """这一局的技能序列还没放（开场技也还没放）。"""
+        self.sequence_done = False
+        self.opening_done = False
+        self.step_index = 0
+        self.timed_next = [0.0] * len(self.character_timed)
 
-        一次性角色：整串按顺序放一遍，每步放完等这一步配置的秒数。
-        循环角色：每次主循环只走一步，靠主循环不断回来接下一步 —— 循环期间还能继续判界面。
+    def play_character_sequence(self):
+        """按「主控角色」的手法放技能：锁定目标之后才开始。
+
+        opening（可选）：这一局开打后先放一遍，只放一次（法露茜的终结技就是这条）。
+        spam + timed（可选）：按真实时间跑的循环 —— 一直按 spam、每隔 N 秒放一组 timed。
+        steps + loop=True：一直循环 steps；loop=False：steps 整串放一遍就停。
         """
+        if (self.character_steps is None and self.character_spam is None
+                and not self.character_timed):
+            # 没有角色手法（「无」或认不出的名字）：退回全局技能计时器
+            if self.fallback_skill_tick is not None:
+                self.fallback_skill_tick()
+            return
+
+        if not self.opening_done:
+            self.opening_done = True
+            if self.character_opening:
+                self.log_info("开场技能（只放一次）: %s" % self.describe_steps(self.character_opening))
+                for action, wait in self.character_opening:
+                    self.release_character_action(action)
+                    self.sleep(wait)
+
+        if self.character_spam is not None or self.character_timed:
+            self.play_timed_rotation()
+            return
+
         if not self.character_loops:
             if self.sequence_done:
                 return
             self.sequence_done = True
-            self.log_info("释放「%s」技能序列: %s"
+            self.log_info("执行「%s」技能序列（放一遍）: %s"
                           % (self.current_character(), self.describe_steps()))
             for action, wait in self.character_steps:
                 self.release_character_action(action)
@@ -374,15 +632,40 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.release_character_action(action)
         self.sleep(wait)
 
-    def describe_steps(self):
-        return " -> ".join("%s后等%.0f秒" % (action, wait)
-                           for action, wait in self.character_steps)
+    def play_timed_rotation(self):
+        """按真实时间放技能（spam + timed）：一次调用最多做一件事。
+
+        先看有没有到点的 timed 组（到了就把这一组连着按完、再安排下一次），没有就按一下 spam。
+        法露茜那套「一直普攻、每 3 秒连按两下战技」就是这种 —— 按真实时间算，
+        不受主循环一轮多久影响。
+        """
+        now = time.time()
+        for index, (interval, actions) in enumerate(self.character_timed):
+            if now >= self.timed_next[index]:
+                self.timed_next[index] = now + interval
+                self.log_info("定时技能（每 %.1f 秒）: %s"
+                              % (interval, " + ".join(actions)))
+                for action in actions:
+                    self.release_character_action(action)
+                    self.sleep(TIMED_BURST_GAP)
+                return
+        if self.character_spam is None:
+            self.sleep(0.05)
+            return
+        action, gap = self.character_spam
+        self.release_character_action(action)
+        if gap > 0:
+            self.sleep(gap)      # 没写间隔就是"一直按"，节奏由主循环决定
+
+    def describe_steps(self, steps=None):
+        steps = self.character_steps if steps is None else steps
+        return " -> ".join("%s后等%.1f秒" % (action, wait) for action, wait in steps)
 
     def release_character_action(self, action):
         """放一次角色序列里的动作。
 
         直接按键，不走角色对象；键值一律取「游戏快捷键设置」里的战技 / 终结技 / 魔灵支援，
-        所以游戏里改过键，只要 App 里这份设置跟着改就一致。
+        普攻取「普攻键」（默认鼠标左键），所以游戏里改过键，只要 App 里这份设置跟着改就一致。
         """
         if action == "长按战技":
             self.log_info("放技能: 长按战技（键 %s，按住 %.1f 秒）"
@@ -409,3 +692,4 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
                 self.mouse_up()
         else:
             raise ValueError("未知技能动作: %s" % action)
+

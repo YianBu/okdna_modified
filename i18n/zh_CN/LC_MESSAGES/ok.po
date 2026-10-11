@@ -763,7 +763,7 @@ msgstr ""
 msgid "主控角色"
 msgstr ""
 
-msgid "松露"
+msgid "无"
 msgstr ""
 
 msgid "请进入狩月人之阶的活动界面"
@@ -783,9 +783,6 @@ msgstr "普攻键"
 
 msgid "Shoot Key"
 msgstr "射击键"
-
-msgid "自动狩月人"
-msgstr ""
 
 msgid "打几次"
 msgstr ""

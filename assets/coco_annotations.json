@@ -241,24 +241,6 @@
             "height": 900
         },
         {
-            "license": 0,
-            "url": null,
-            "file_name": "images/6.png",
-            "height": 599,
-            "width": 1064,
-            "date_captured": null,
-            "id": 41
-        },
-        {
-            "license": 0,
-            "url": null,
-            "file_name": "images/8.png",
-            "height": 598,
-            "width": 1062,
-            "date_captured": null,
-            "id": 43
-        },
-        {
             "id": 44,
             "file_name": "images/9.png",
             "width": 1600,
@@ -1092,36 +1074,6 @@
             "iscrowd": 0
         },
         {
-            "id": 58,
-            "image_id": 41,
-            "category_id": 58,
-            "bbox": [
-                782,
-                520,
-                44,
-                38
-            ],
-            "area": 1672,
-            "iscrowd": 0,
-            "ignore": 0,
-            "segmentation": []
-        },
-        {
-            "id": 60,
-            "image_id": 43,
-            "category_id": 60,
-            "bbox": [
-                388,
-                516,
-                28,
-                28
-            ],
-            "area": 784,
-            "iscrowd": 0,
-            "ignore": 0,
-            "segmentation": []
-        },
-        {
             "id": 61,
             "image_id": 44,
             "category_id": 61,
@@ -1466,16 +1418,6 @@
         {
             "id": 57,
             "name": "action_dialog_continue2",
-            "supercategory": ""
-        },
-        {
-            "id": 58,
-            "name": "hunt_moon_start_icon",
-            "supercategory": ""
-        },
-        {
-            "id": 60,
-            "name": "hunt_moon_restart_icon",
             "supercategory": ""
         },
         {
