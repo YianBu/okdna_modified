@@ -18,6 +18,7 @@ key_config_option = ConfigOption(
         "HelixLeap Key": "4",
         "Normal Attack Key": "鼠标左键",  # 普攻，默认鼠标左键
         "Shoot Key": "鼠标右键",          # 射击，默认鼠标右键
+        "Lock Key": "鼠标中键",           # 锁定目标，默认鼠标中键
     },
     description="In Game Hotkey for Skills",
     config_type={"Interact Key": {"type": "drop_down", "options": ["f", "e"]}},

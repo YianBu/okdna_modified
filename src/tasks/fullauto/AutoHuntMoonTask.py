@@ -3,8 +3,8 @@
 
 一轮的流程：
   活动界面点「开始挑战」（有「确认进入」弹窗就点它的「确定」）-> 进本加载 -> 左上角出现
-  金色菱形（关卡已加载）-> 稳 RUN_SETTLE 秒后按录制时间轴走位 -> 点一下鼠标中键锁定目标
-  -> 菱形变红 = 已开战 -> 按「主控角色」的序列放技能（法露茜：终结技 + 普攻 x4 + 战技一直循环）
+  金色菱形（关卡已加载）-> 稳 RUN_SETTLE 秒后按录制时间轴走位 -> 锁定目标（起手序列里写了「锁定」就用它）
+  -> 菱形变红 = 已开战 -> 按「主控角色」的手法放技能（法露茜：起手锁定 + 连按 5 下终结技，循环普攻 + 每 3 秒连按两下战技）
   -> 结算页（「挑战成功」/「挑战结束」上都有「重新开始」）
   -> 点「重新开始」接着下一局，打满「打几次」结束（0 = 无限循环）。
 
@@ -78,8 +78,9 @@ WALK_RELEASE_KEYS = ('w', 'a', 's', 'd', 'shift')
 
 # 关卡加载完之后先稳这么久再走位：判据刚出来时角色还在落地/过场收尾，按走位键会被吃掉
 RUN_SETTLE = 1
-# 走位完点一下鼠标中键锁定，锁定要一下才生效，稳这么久再往下。按太快那一下会被游戏
-# 吃掉（实测中键后 88ms 就按技能，没生效）。这是默认值，角色表里可以用 lock_settle 覆盖
+# 起手序列里没写「锁定」时，走位完自动按「锁定键」（游戏快捷键设置里配，默认鼠标中键）
+# 锁定目标，再稳这么久往下。按太快那一下会被游戏吃掉（实测中键后 88ms 就按技能）。
+# 这是默认值，角色表里可以用 lock_settle 覆盖
 LOCK_SETTLE = 1.5
 # 起手判据的缓冲（秒）：进任务后最多找这么久，还没在「狩月人之阶」活动界面就提示停止
 ACTIVITY_INTERFACE_TIMEOUT = 2.0
@@ -92,10 +93,13 @@ UNKNOWN_SCREEN_GIVE_UP = 180
 NO_COMBAT_TIME_OUT = 30
 # 连续失败（开不了战 / 结算点不动）几次后报错停止。配置里只留「打几次」，这个用内部常量
 RESTART_FAILURE_LIMIT = 3
+# 「超时重启」：从进战那一刻开始算，打这么久还没进结算页就重启这一局（0 = 不限制）
+COMBAT_TIMEOUT_KEY = "超时重启"
+COMBAT_TIMEOUT_DEFAULT = 60
 
 # 「主控角色」-> 该角色的技能手法：
-#   lock_settle: 可选。锁定目标后先等几秒（覆盖 LOCK_SETTLE 的默认值）
-#   opening: 可选。锁定后先放一遍（只放一次），放完再接下面的手法；不写就是没有开场
+#   opening: 起手序列。走位之后先放一遍（只放一次），放完再接循环序列；可以写「锁定」动作
+#   lock_settle: 可选。起手序列里**没写**「锁定」时，走位完自动锁定 + 等这么久（默认 LOCK_SETTLE）
 #   spam + timed: 可选，"按真实时间"的循环手法（和 steps 二选一）：
 #     spam  = "普攻"（一直按，不加额外间隔）或 (动作, 最小间隔秒数)
 #     timed = ((间隔秒数, (动作, ...)), ...)：每隔这么多秒，把这一组动作连着按完
@@ -106,11 +110,11 @@ RESTART_FAILURE_LIMIT = 3
 #            False = steps 整串放一遍就停
 # 走位和主控角色无关（所有角色共用上面那段录制时序），角色之间只差这张表。
 CHARACTER_ROTATIONS = {
-    # 法露茜：锁定后稳 0.5 秒 -> 连按 3 下终结技（冷却中游戏会忽略；哪一下被吃掉，
-    # 后面两下补上），然后一直连按普攻、每 3 秒连按两下战技。
-    # 最后一个终结技后留 1 秒再进普攻，免得终结技演出没走完、普攻那下被吃掉。
-    "法露茜": {"lock_settle": 0.5,
-               "opening": (("终结技", 0.1), ("终结技", 0.1), ("终结技", 1.0)),
+    # 法露茜：起手序列 = 锁定（等 0.5 秒）-> 连按 5 下终结技（冷却中游戏会忽略；哪一下被
+    # 吃掉，后面几下补上；最后一个后面留 1 秒等演出）。
+    # 循环序列 = 一直连按普攻、每 3 秒连按两下战技。
+    "法露茜": {"opening": (("锁定", 0.5), ("终结技", 0.1), ("终结技", 0.1), ("终结技", 0.1),
+                           ("终结技", 0.1), ("终结技", 1.0)),
                "spam": "普攻",
                "timed": ((3.0, ("短按战技", "短按战技")),)},
 }
@@ -132,6 +136,7 @@ CUSTOM_ACTIONS = {
     "魔灵支援": "魔灵支援",
     "普攻": "普攻",
     "重击": "重击",
+    "锁定": "锁定",
 }
 # 「长按战技」按住的秒数、「重击」按住左键的秒数（和「全局技能设定」的默认值一致）
 COMBAT_LONG_PRESS = 1.0
@@ -155,9 +160,10 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.group_name = "全自动（特殊）"
         self.group_icon = FluentIcon.GAME
 
-        # 这个模式没有轮次、战斗超时，也没有「挂机模式」那套移动/复位配置：只有打几次
+        # 这个模式没有轮次，也没有「挂机模式」那套移动/复位配置：只有打几次 + 超时重启
         self.default_config.update({
             "打几次": 0,
+            COMBAT_TIMEOUT_KEY: COMBAT_TIMEOUT_DEFAULT,
             "主控角色": DEFAULT_CHARACTER,
             CUSTOM_SEQUENCE_KEY: DEFAULT_CUSTOM_SEQUENCE,
         })
@@ -167,6 +173,7 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         }
         self.config_description.update({
             "打几次": "打几次，0 = 无限循环",
+            COMBAT_TIMEOUT_KEY: "从进战开始算，超过这么多秒还没结算就重启这一局（0 = 不限制）",
             "主控角色": "选角色就按它的手法放技能；选「无」不套手法、直接执行「全局技能设定」"
                           "（走位和主控角色无关）",
             CUSTOM_SEQUENCE_KEY: "选「自定义」时用：每一步写成「技能:等待秒数」，逗号分隔。"
@@ -284,6 +291,14 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         except (TypeError, ValueError):
             return 0
 
+    def combat_timeout(self):
+        """「超时重启」配置：进战后最多打多少秒，0 = 不限制。"""
+        try:
+            return max(0.0, float(self.config.get(COMBAT_TIMEOUT_KEY,
+                                                  COMBAT_TIMEOUT_DEFAULT)))
+        except (TypeError, ValueError):
+            return COMBAT_TIMEOUT_DEFAULT
+
     def note_failure(self, reason):
         """记一次连续失败：超过上限就报错停止（配置里只有「打几次」，上限用内部常量）。"""
         self.run_failures += 1
@@ -370,11 +385,13 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             self.mission_started = True
             self.reset_sequence_state()
             self.play_walk()
-            # 走位走完点一下鼠标中键锁定目标，之后才进技能序列；锁定要一下才生效，
-            # 稳 lock_settle 秒再往下（默认 1.5 秒，法露茜 0.5 秒）
-            self.log_info("走位结束，点鼠标中键锁定目标，稳 %.1f 秒" % self.lock_settle)
-            self.middle_click()
-            self.sleep(self.lock_settle)
+            # 起手序列里自己写了「锁定」的（法露茜），锁定和它的等待都在起手序列里，这里不重复锁；
+            # 没写的（「无」/「自定义」）走位完自动锁一下 + 稳 lock_settle 秒
+            if not self.plan_has_lock():
+                self.log_info("走位结束，按锁定键（%s）锁定目标，稳 %.1f 秒"
+                              % (self.get_lock_key(), self.lock_settle))
+                self.press_hotkey(self.get_lock_key())
+                self.sleep(self.lock_settle)
         # 不再单独"等开战"：直接进开打循环，技能由里面的"菱形变红"判断控制
         if not self.fight_until_result():
             # 红菱形长时间不在（掉线、卡在读条）：已经重开了一局，退回重新走位
@@ -412,10 +429,13 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     def fight_until_result(self):
         """挂机。返回 True = 结算页出现（这一局打完），False = 该重开一局。
 
+        「超时重启」：从**进战那一刻**开始计时，超过配置的秒数还没进结算页就重启这一局；
+        结算（或者重开完的下一局）会重新从进战开始算。
         红菱形闪一下不算"没进战斗"（判据在实机上会闪）：只有连续消失 NO_COMBAT_TIME_OUT 秒
         （掉线、卡在读条、结算页被漏读后停在加载画面）才算没在战斗 —— 重开一局。
         """
         no_combat_since = None
+        combat_since = None
         while True:
             self.next_frame()
             if self.find_one(RESULT_RESTART):
@@ -428,6 +448,14 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
             if in_combat:
                 no_combat_since = None
                 self.run_failures = 0
+                if combat_since is None:
+                    combat_since = time.time()
+                timeout = self.combat_timeout()
+                if timeout and time.time() - combat_since >= timeout:
+                    self.log_info(f'进战已 {int(time.time() - combat_since)} 秒还没结算'
+                                  f'（超时重启 {int(timeout)} 秒），重启这一局')
+                    self.restart_in_mission()
+                    return False
                 self.play_character_sequence()
             elif no_combat_since is None:
                 no_combat_since = time.time()
@@ -502,6 +530,17 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
 
     def current_character(self):
         return self.config.get("主控角色", DEFAULT_CHARACTER)
+
+    def plan_has_lock(self):
+        """这套手法里是不是自己带了「锁定」动作（带了就不在走位之后自动锁）。"""
+        actions = [action for action, _ in self.character_opening]
+        if self.character_steps:
+            actions += [action for action, _ in self.character_steps]
+        if self.character_spam:
+            actions.append(self.character_spam[0])
+        for _, group in self.character_timed:
+            actions += list(group)
+        return "锁定" in actions
 
     def setup_character(self):
         """按「主控角色」取技能序列；取不到就退回全局技能计时器。"""
@@ -683,6 +722,9 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         elif action == "普攻":
             self.log_info("放技能: 普攻（键 %s）" % self.get_normal_attack_key())
             self.press_hotkey(self.get_normal_attack_key())
+        elif action == "锁定":
+            self.log_info("锁定目标（键 %s）" % self.get_lock_key())
+            self.press_hotkey(self.get_lock_key())
         elif action == "重击":
             self.log_info("放技能: 重击（按住 %.1f 秒）" % HEAVY_ATTACK_HOLD)
             self.mouse_down()

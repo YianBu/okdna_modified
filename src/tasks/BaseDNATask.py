@@ -26,6 +26,7 @@ logger = Logger.get_logger(__name__)
 # 鼠标键支持中英两种写法（界面上显示中文），其余值一律按键盘键处理。
 NORMAL_ATTACK_KEY_DEFAULT = "鼠标左键"
 SHOOT_KEY_DEFAULT = "鼠标右键"
+LOCK_KEY_DEFAULT = "鼠标中键"
 MOUSE_HOTKEY_BUTTONS = {
     "left": "left", "鼠标左键": "left", "左键": "left",
     "right": "right", "鼠标右键": "right", "右键": "right",
@@ -633,6 +634,10 @@ class BaseDNATask(BaseTask):
     def get_shoot_key(self):
         """获取射击键（默认鼠标右键）。"""
         return self.key_config.get('Shoot Key', SHOOT_KEY_DEFAULT)
+
+    def get_lock_key(self):
+        """获取锁定目标的按键（默认鼠标中键）。"""
+        return self.key_config.get('Lock Key', LOCK_KEY_DEFAULT)
 
     def mouse_hotkey_button(self, key):
         """热键值对应的鼠标键名（left / middle / right）；不是鼠标键时返回 None。"""

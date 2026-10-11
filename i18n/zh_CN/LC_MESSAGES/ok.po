@@ -784,6 +784,9 @@ msgstr "普攻键"
 msgid "Shoot Key"
 msgstr "射击键"
 
+msgid "Lock Key"
+msgstr "锁定键"
+
 msgid "打几次"
 msgstr ""
 
