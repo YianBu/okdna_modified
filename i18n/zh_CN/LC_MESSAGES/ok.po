@@ -783,3 +783,12 @@ msgstr "普攻键"
 
 msgid "Shoot Key"
 msgstr "射击键"
+
+msgid "自动狩月人"
+msgstr ""
+
+msgid "打几次"
+msgstr ""
+
+msgid "打几次，0 = 无限循环"
+msgstr ""

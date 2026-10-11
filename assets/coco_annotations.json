@@ -257,6 +257,30 @@
             "width": 1062,
             "date_captured": null,
             "id": 43
+        },
+        {
+            "id": 44,
+            "file_name": "images/9.png",
+            "width": 1600,
+            "height": 900
+        },
+        {
+            "id": 45,
+            "file_name": "images/10.png",
+            "width": 1600,
+            "height": 900
+        },
+        {
+            "id": 46,
+            "file_name": "images/11.png",
+            "width": 1600,
+            "height": 900
+        },
+        {
+            "id": 47,
+            "file_name": "images/12.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1096,6 +1120,66 @@
             "iscrowd": 0,
             "ignore": 0,
             "segmentation": []
+        },
+        {
+            "id": 61,
+            "image_id": 44,
+            "category_id": 61,
+            "bbox": [
+                1266,
+                799,
+                23,
+                23
+            ],
+            "area": 529,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        },
+        {
+            "id": 62,
+            "image_id": 45,
+            "category_id": 62,
+            "bbox": [
+                45,
+                273,
+                6,
+                13
+            ],
+            "area": 78,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        },
+        {
+            "id": 63,
+            "image_id": 46,
+            "category_id": 63,
+            "bbox": [
+                45,
+                273,
+                6,
+                12
+            ],
+            "area": 72,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        },
+        {
+            "id": 64,
+            "image_id": 47,
+            "category_id": 64,
+            "bbox": [
+                575,
+                779,
+                26,
+                27
+            ],
+            "area": 702,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
         }
     ],
     "categories": [
@@ -1392,6 +1476,26 @@
         {
             "id": 60,
             "name": "hunt_moon_restart_icon",
+            "supercategory": ""
+        },
+        {
+            "id": 61,
+            "name": "syr_start_btn",
+            "supercategory": ""
+        },
+        {
+            "id": 62,
+            "name": "syr_hud_start",
+            "supercategory": ""
+        },
+        {
+            "id": 63,
+            "name": "syr_hud_fight",
+            "supercategory": ""
+        },
+        {
+            "id": 64,
+            "name": "syr_hud_restart",
             "supercategory": ""
         }
     ]

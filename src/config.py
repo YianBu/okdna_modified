@@ -217,6 +217,7 @@ config = {
         ["src.tasks.fullauto.AutoLetterOpenTask", "AutoLetterOpenTask"],
         ["src.tasks.fullauto.AutoTheatreTask", "AutoTheatreTask"],
         ["src.tasks.fullauto.AutoHuntMoonTask", "AutoHuntMoonTask"],
+        ["src.tasks.fullauto.AutoMoonHunterTask", "AutoMoonHunterTask"],
         ["src.tasks.AutoSkill", "AutoSkill"],
         ["src.tasks.AutoGeneral", "AutoGeneral"],
         ["src.tasks.AutoDefence", "AutoDefence"],
