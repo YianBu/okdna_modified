@@ -17,9 +17,9 @@ logger = Logger.get_logger(__name__)
 #   loop:  False = 进本后整串按顺序放一遍就停（每开始新一轮再放一次）
 #          True  = 一直循环放；循环型每进一次主循环只走一步，这样循环期间还能继续判界面
 CHARACTER_ROTATIONS = {
-    # 止流：战技 -> 停1秒 -> 长按战技(1秒) -> 停1秒 -> 终结技，放一遍
+    # 止流：战技 -> 停1秒 -> 长按战技(1秒) -> 停1秒 -> 终结技，一直循环
     "止流": {
-        "loop": False,
+        "loop": True,
         "steps": (("短按战技", 1.0), ("长按战技", 1.0), ("终结技", 1.0)),
     },
     # 伊薇：战技*7（每个后面停1秒），放一遍
@@ -415,7 +415,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         return False
 
     # ------------------------------------------------------------------
-    # 角色手法（不走全局技能计时器，一轮只放一次）
+    # 角色手法（不走全局技能计时器，按「使用角色」的序列释放）
     # ------------------------------------------------------------------
 
     def current_character(self):
@@ -475,9 +475,10 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
     def run_character_skill(self):
         """按「使用角色」的手法放技能。
 
-        一次性角色（止流）：整串按顺序放一遍，每步放完等这一步配置的秒数。
-        循环角色（伊薇）：每次主循环只走一步，靠主循环不断回来接下一步 —— 这样循环期间
-        还能继续整屏 OCR 判界面（打完一关的弹窗、退出结算…），不会卡死在技能循环里。
+        一次性的（loop=False）：整串按顺序放一遍，每步放完等这一步配置的秒数。
+        循环的（loop=True，止流 / 伊薇）：每次主循环只走一步，靠主循环不断回来接下一步
+        —— 这样循环期间还能继续整屏 OCR 判界面（打完一关的弹窗、退出结算…），
+        不会卡死在技能循环里。
         """
         if not self.character_loops:
             if self.sequence_done:
