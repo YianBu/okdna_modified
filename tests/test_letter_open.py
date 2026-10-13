@@ -36,7 +36,8 @@ class TestLetterOpen(TaskTestCase):
 
     _PATCHED = ('screen_box', 'draw_boxes', 'ocr', 'in_team', 'move_on_begin',
                 'random_walk_tick', 'skill_tick', 'config', 'wait_until', '_click_detected',
-                'log_info', 'log_info_notify', 'soundBeep', 'frame_missing')
+                'log_info', 'log_info_notify', 'soundBeep', 'frame_missing',
+                'ensure_auto_rounds_off')
 
     def setUp(self):
         # 同一个 task 实例被整个类共用，打了桩要还原，别串到别的用例

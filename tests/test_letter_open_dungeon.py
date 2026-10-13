@@ -65,7 +65,7 @@ class TestLetterOpenDungeon(TaskTestCase):
                            '_auto_rounds_off_confirmed', '_next_auto_rounds_check',
                            '_entry_letter_count', '_entry_rounds_done')
     _PATCHED = _PATCHED + ('update_rounds_info', 'info_set')
-    _PATCHED = _PATCHED + ('account_drive_away_round',)
+    _PATCHED = _PATCHED + ('account_drive_away_round', 'ensure_auto_rounds_off')
 
     def setUp(self):
         self._saved = {name: getattr(self.task, name) for name in self._PATCHED}
@@ -148,6 +148,21 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.assertTrue(ok)
         self.assertEqual(self.task._dungeon_mode, MODE_EXPLORATION)
         self.assertEqual(clicked[0].y, 559, '第 1 栏持有数 0，应跳到第 2 栏')
+
+    def test_disabled_column_is_skipped(self):
+        """「魔之楔」那栏的开关关掉：就算它有驱离也不挑，改挑「角色」栏的探险。"""
+        self.task.config = {'魔之楔': False}
+        ok, clicked = self.pick(BOARD_OCR)
+        self.assertTrue(ok)
+        self.assertEqual(self.task._dungeon_mode, MODE_EXPLORATION, '驱离那栏被关了，跳到探险')
+        self.assertEqual(clicked[0].name, '探险/无尽')
+
+    def test_all_columns_disabled_picks_nothing(self):
+        """三栏开关都关掉：什么都不挑（交给「等待刷新」那套）。"""
+        self.task.config = {'角色': False, '武器': False, '魔之楔': False}
+        ok, clicked = self.pick(BOARD_OCR)
+        self.assertFalse(ok)
+        self.assertEqual(clicked, [])
 
     def test_pick_none_when_nothing_playable(self):
         """列表上没有可打的委托：不挑。"""
