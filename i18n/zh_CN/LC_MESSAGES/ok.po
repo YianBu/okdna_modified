@@ -648,22 +648,10 @@ msgstr ""
 msgid "列表里暂时没有可打的「驱离」时，等它下次刷新后再扫一遍；关掉则直接结束任务"
 msgstr ""
 
-msgid "角色"
+msgid "栏目选择"
 msgstr ""
 
-msgid "武器"
-msgstr ""
-
-msgid "魔之楔"
-msgstr ""
-
-msgid "打不打「角色」这一栏的密函本（默认开）"
-msgstr ""
-
-msgid "打不打「武器」这一栏的密函本（默认开）"
-msgstr ""
-
-msgid "打不打「魔之楔」这一栏的密函本（默认开）"
+msgid "选择要打哪几栏的密函本（角色 / 武器 / 魔之楔，默认三栏全打）"
 msgstr ""
 
 msgid "扼守探险开密函"

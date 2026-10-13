@@ -14,6 +14,7 @@ from src.config import config
 from src.tasks.fullauto.AutoLetterOpenTask import (
     AutoLetterOpenTask,
     AUTO_ROUNDS_RE,
+    COLUMN_NAMES,
     DEFAULT_ROUNDS,
     MODE_DRIVE,
     ROUND_CONFIG_KEYS,
@@ -149,20 +150,36 @@ class TestLetterOpenDungeon(TaskTestCase):
         self.assertEqual(self.task._dungeon_mode, MODE_EXPLORATION)
         self.assertEqual(clicked[0].y, 559, '第 1 栏持有数 0，应跳到第 2 栏')
 
-    def test_disabled_column_is_skipped(self):
-        """「魔之楔」那栏的开关关掉：就算它有驱离也不挑，改挑「角色」栏的探险。"""
-        self.task.config = {'魔之楔': False}
+    def test_unselected_column_is_skipped(self):
+        """「栏目选择」没勾「魔之楔」：就算它有驱离也不挑，改挑「角色」栏的探险。"""
+        self.task.config = {'栏目选择': ['角色', '武器']}
         ok, clicked = self.pick(BOARD_OCR)
         self.assertTrue(ok)
-        self.assertEqual(self.task._dungeon_mode, MODE_EXPLORATION, '驱离那栏被关了，跳到探险')
+        self.assertEqual(self.task._dungeon_mode, MODE_EXPLORATION, '驱离那栏没勾，跳到探险')
         self.assertEqual(clicked[0].name, '探险/无尽')
 
-    def test_all_columns_disabled_picks_nothing(self):
-        """三栏开关都关掉：什么都不挑（交给「等待刷新」那套）。"""
-        self.task.config = {'角色': False, '武器': False, '魔之楔': False}
+    def test_no_column_selected_picks_nothing(self):
+        """「栏目选择」一个都没勾：什么都不挑（交给「等待刷新」那套）。"""
+        self.task.config = {'栏目选择': []}
         ok, clicked = self.pick(BOARD_OCR)
         self.assertFalse(ok)
         self.assertEqual(clicked, [])
+
+    def test_selected_columns_reads_the_multi_selection(self):
+        """「栏目选择」是「地图选择」那种多选：按勾上的栏给结果，缺配置按三栏全勾。"""
+        self.task.config = {'栏目选择': ['魔之楔']}
+        self.assertEqual(self.task.selected_columns(), ['魔之楔'])
+        self.task.config = {'栏目选择': ['武器', '角色']}
+        self.assertEqual(self.task.selected_columns(), ['角色', '武器'], '按列表固定顺序给结果')
+        self.task.config = {}
+        self.assertEqual(self.task.selected_columns(), list(COLUMN_NAMES), '老存档没这个键 = 三栏全打')
+        self.assertEqual(self.task.default_config['栏目选择'], list(COLUMN_NAMES))
+
+    def test_column_selection_is_a_multi_selection_like_map_selection(self):
+        """界面上要是「地图选择」那种一排勾选框（multi_selection），不是三个开关。"""
+        field = self.task.config_type['栏目选择']
+        self.assertEqual(field['type'], 'multi_selection')
+        self.assertEqual(field['options'], list(COLUMN_NAMES))
 
     def test_pick_none_when_nothing_playable(self):
         """列表上没有可打的委托：不挑。"""

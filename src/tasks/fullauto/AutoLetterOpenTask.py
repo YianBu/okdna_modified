@@ -89,8 +89,8 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
     图2 = 某个密函任务的开始界面，也就是「自动驱离」平时开工的那个界面。
 
     流程：
-      1) 图1：读三栏的「持有数」，在**开着**的栏里挑优先级最高的任务（驱离 > 探险 > 扼守，
-         见下「角色/武器/魔之楔」三个开关），持有数>0 才点它进图2；
+      1) 图1：读三栏的「持有数」，在**勾了**的栏里挑优先级最高的任务（驱离 > 探险 > 扼守，
+         见下「栏目选择」），持有数>0 才点它进图2；
          （图2 只有从图1 点任务才进得去，别处到不了）
       2) 图2：点「选择密函」开打。打完一把游戏给的是**结算界面**（委托完成 / 再次进行 /
          退出委托），所以内层循环就在结算界面点「再次进行」-> 密函选择 -> 打 -> 密函奖励
@@ -104,9 +104,9 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
       4) 三栏都没有可打的任务时，读图1 右下角倒计时等刷新再扫一遍；
          「等待刷新」关掉则直接结束任务。
 
-    角色/武器/魔之楔（三栏各自的开关，默认全开）：
-      关掉哪一栏，那一栏的密函本就不打了（哪怕它有持有数>0、有可打的任务也跳过），
-      直接把注意力放到还开着的栏上。三栏全关时等于没有可打的委托，走「等待刷新」。
+    栏目选择（角色 / 武器 / 魔之楔，多选，默认三栏全勾）：
+      勾了哪几栏就打哪几栏的密函本。没勾的那栏跳过（哪怕它持有数>0、有可打的任务也不碰），
+      只看勾上的栏。三栏一个都没勾时等于没有可打的委托，走「等待刷新」。
 
     计时（先检测、再按检测到的时长跑，跑完回图1 重新检测）：
       进这一栏之前先在**图1** 读一次「xx分xx秒刷新密函委托」兜底，进图2 后再读一次
@@ -141,24 +141,26 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
         self.group_icon = FluentIcon.GAME
 
         self.default_config.update({
-            "角色": True,
-            "武器": True,
-            "魔之楔": True,
+            "栏目选择": list(COLUMN_NAMES),
             "等待刷新": True,
             "空窗保活间隔(分钟)": KEEPALIVE_INTERVAL_MINUTES_DEFAULT,
             "探险轮次": DEFAULT_ROUNDS,
             "扼守轮次": DEFAULT_ROUNDS,
         })
         self.config_description.update({
-            "角色": "打不打「角色」这一栏的密函本（默认开）",
-            "武器": "打不打「武器」这一栏的密函本（默认开）",
-            "魔之楔": "打不打「魔之楔」这一栏的密函本（默认开）",
+            "栏目选择": "选择要打哪几栏的密函本（角色 / 武器 / 魔之楔，默认三栏全打）",
             "等待刷新": "列表里暂时没有可打的任务时，等它下次刷新后再扫一遍；关掉则直接结束任务",
             "空窗保活间隔(分钟)": "空窗期每隔这么多分钟点进一个委托再退出来，避免云游戏判定"
                                 "「长时间未操作」而断线（实测 30~59 分钟之间会被踢，默认 10 分钟留余量）",
             "探险轮次": "探险模式下，进一次本打多少轮（默认 20）",
             "扼守轮次": "扼守模式下，进一次本打多少轮（默认 20）",
         })
+        # 「栏目选择」：勾选框的那几栏（跟「自动探险/无尽」的「地图选择」同一个样式），
+        # 勾了哪几栏就打哪几栏，没勾的整栏跳过。
+        self.config_type["栏目选择"] = {
+            "type": "multi_selection",
+            "options": list(COLUMN_NAMES),
+        }
         # 本任务不需要「随机游走 / 挂机模式 / 开局向前走」：驱离进本就原地不动放技能，
         # 探险/扼守 的走位是固定的录制序列（走完再挂机）。
         for key in ("随机游走", "挂机模式", "开局向前走"):
@@ -772,16 +774,21 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
 
         优先级 **驱离 > 探险 > 扼守**：三种任务混在列表那三栏里，每次都挑优先级最高、
         且该栏「持有数>0」的那种。挑中之后这一把就按它的类型跑对应逻辑（驱离只放技能；
-        探险 / 扼守 判图 + 走位）。
+        探险 / 扼守 判图 + 走位）。只挑「栏目选择」勾上的栏（默认三栏全勾）。
         """
         data = self.scan_letter_board(force=True)
         if not data["on_board"]:
             return False
 
+        columns = self.selected_columns()
+        if not columns:
+            self.log_onetime_info("「栏目选择」一栏都没勾，先不打密函本")
+            return False
+
         for mode in TASK_MODES:
             for index, column in enumerate(COLUMN_NAMES):
-                # 三栏各有开关（角色 / 武器 / 魔之楔，默认全开）：关掉的那栏直接不碰
-                if not self.config.get(column, True):
+                # 没勾上的那栏直接不碰（「栏目选择」多选，默认三栏全勾）
+                if column not in columns:
                     continue
                 target, name = self.column_task(data, index, mode)
                 if target is None:
@@ -909,6 +916,17 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
             return int(self.config.get(key, DEFAULT_ROUNDS))
         except (TypeError, ValueError):
             return DEFAULT_ROUNDS
+
+    def selected_columns(self):
+        """「栏目选择」勾了哪几栏，按 角色/武器/魔之楔 的顺序返回。
+
+        配置缺失（老的存档里没这个键）按三栏全勾算；返回空列表 = 一个都没勾，
+        交给「等待刷新」那套等下次刷新。
+        """
+        selection = self.config.get("栏目选择", COLUMN_NAMES)
+        if selection is None:
+            return list(COLUMN_NAMES)
+        return [column for column in COLUMN_NAMES if column in selection]
 
     def handle_no_drive_away(self):
         """三栏都没有可打的任务：等到"刷新倒计时 + 1 分钟"再扫一遍。
