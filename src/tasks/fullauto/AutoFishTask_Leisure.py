@@ -100,6 +100,39 @@ class AutoFishTask_Leisure(DNAOneTimeTask, BaseDNATask):
             return True, (box.x + box.width // 2, box.y + box.height // 2)
         return False, (0, 0)
 
+    def find_fish_prompt(self):
+        """右下角提示图标：鱼竿图样按空格，耳机图样（自动钓鱼中）不按
+
+        模板只取圆盘内的白色图案区（共用圆环/键帽不进模板，靠图案区分两种状态）。
+        返回匹配到的 Box（name 为 fish_prompt_cast / fish_prompt_auto），未找到返回 None
+        """
+        PROMPT_THRESHOLD = 0.65  # 实测同图案跨时刻 ~0.84+，异图案 ~0.58
+        roi = self.box_of_screen(0.82, 0.74, 0.96, 0.97, name="fish_prompt_roi")
+        return self.find_best_match_in_box(roi, ["fish_prompt_cast", "fish_prompt_auto"], PROMPT_THRESHOLD)
+
+    def find_fish_caught(self):
+        """查找结算弹窗标题（钓到鱼了），返回标题 Box，未找到返回 None"""
+        CAUGHT_THRESHOLD = 0.7  # 实测同图 ~0.96，异图 ~0.47
+        roi = self.box_of_screen(0.38, 0.10, 0.62, 0.26, name="fish_caught_roi")
+        return self.find_one("fish_caught", box=roi, threshold=CAUGHT_THRESHOLD)
+
+    def close_caught_popup(self) -> bool:
+        """钓到鱼结算弹窗：连续点击卡片下方“自动关闭”处直到弹窗关闭"""
+        logger.info("检测到钓到鱼结算弹窗 -> 点击“自动关闭”关闭")
+        close_deadline = time.monotonic() + 15.0
+        while time.monotonic() < close_deadline:
+            title = self.find_fish_caught()
+            if title is None:
+                logger.info("结算弹窗已关闭")
+                return True
+            # “自动关闭(Ns)”在卡片正下方、屏幕底部：标题中心 x，y 取帧高 ~0.944 处（按 1920 截图实测换算）
+            x = title.x + title.width // 2
+            y = int(self.height * 0.944)
+            self.click(x, y)
+            self.sleep(0.25)
+        logger.info("结算弹窗关闭超时，继续主循环")
+        return False
+
     def find_bar_and_fish_by_area(self):
         """基于 ROI 找到鱼条和鱼标的区域与面积
 
@@ -490,7 +523,7 @@ class AutoFishTask_Leisure(DNAOneTimeTask, BaseDNATask):
     # main run
     def do_run(self):
         logger.info("=" * 50)
-        logger.info("自动钓鱼（悠闲）启动：全自动接管 抛竿 / 授渔以鱼溜鱼 / 继续")
+        logger.info("自动钓鱼（悠闲）启动：右下角提示按空格 / 授渔以鱼溜鱼 / 结算连点关闭")
         logger.info("=" * 50)
 
         self.stats["start_time"] = time.time()
@@ -499,25 +532,27 @@ class AutoFishTask_Leisure(DNAOneTimeTask, BaseDNATask):
         last_blank_click = 0.0
         while True:
             try:
-                # 1) 抛竿界面 -> 按空格开始/继续钓鱼
-                if self.find_fish_cast()[0]:
-                    logger.info("检测到抛竿界面 -> 按空格")
-                    self.info_set("当前阶段", "已抛竿")
-                    self.send_key("space", down_time=0.06)
-                    self.sleep(0.5)
+                # 0) 钓到鱼结算弹窗 -> 连续点击屏幕边缘空白处直到关闭
+                if self.find_fish_caught():
+                    self.info_set("当前阶段", "关闭结算")
+                    self.close_caught_popup()
                     continue
 
-                # 2) 出现鱼条（悠闲模式只有授渔以鱼需要手动溜鱼）-> 接管自动溜鱼
-                (has_bar, _, _), (has_icon, _, _) = self.find_bar_and_fish_by_area()
-                if has_bar or has_icon:
-                    logger.info("检测到鱼条 -> 自动溜鱼")
-                    self.info_set("当前阶段", "自动溜鱼")
-                    self.phase_fight()
-                    # 钓到鱼后点空白处关闭鱼信息层
-                    self.click_relative_random(0.05, 0.3, 0.4, 0.7)
-                    continue
+                # 1) 右下角提示图标：鱼竿图样 -> 按空格抛竿/收杆
+                prompt = self.find_fish_prompt()
+                if prompt:
+                    if prompt.name == "fish_prompt_cast":
+                        logger.info("检测到抛竿/收杆提示（鱼竿图标）-> 按空格")
+                        self.info_set("当前阶段", "抛竿")
+                        self.send_key("space", down_time=0.06)
+                        self.sleep(0.5)
+                        continue
+                    # 耳机图样 = 自动钓鱼进行中，不按空格，等游戏自己钓
+                    logger.info("检测到自动钓鱼提示（耳机图标）-> 不按空格")
+                    self.info_set("当前阶段", "自动钓鱼中")
 
-                # 3) 其它情况：等游戏自动溜鱼 / 咬钩等；定期点空白关闭鱼信息层
+                # 2) 其它情况：等游戏自动钓鱼 / 咬钩等；定期点空白关闭鱼信息层
+                # （授渔以鱼改版后不再出现鱼条，无需手动溜鱼）
                 self.info_set("当前阶段", "等待")
                 now = time.monotonic()
                 if now - last_blank_click >= 1.0:

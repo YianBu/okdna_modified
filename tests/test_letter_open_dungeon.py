@@ -11,6 +11,7 @@ from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
+from src.dna_ui.Defs import COORD
 from src.tasks.fullauto.AutoLetterOpenTask import (
     AutoLetterOpenTask,
     AUTO_ROUNDS_RE,
@@ -67,6 +68,7 @@ class TestLetterOpenDungeon(TaskTestCase):
                            '_entry_letter_count', '_entry_rounds_done')
     _PATCHED = _PATCHED + ('update_rounds_info', 'info_set')
     _PATCHED = _PATCHED + ('account_drive_away_round', 'ensure_auto_rounds_off')
+    _PATCHED = _PATCHED + ('click_ui_coord',)
 
     def setUp(self):
         self._saved = {name: getattr(self.task, name) for name in self._PATCHED}
@@ -473,6 +475,29 @@ class TestLetterOpenDungeon(TaskTestCase):
         """没有那行说明文字就不是行动抉择弹窗（别的界面也有「撤离」字样，别乱点）。"""
         self.task.ocr = lambda **kw: [box(330, 399, '撤离', w=52, h=23)]
         self.assertIsNone(self.task.find_retreat_button())
+
+    # ---- 超时/放弃：ESC 菜单开着时要真的去点「放弃挑战」----
+
+    def test_give_up_clicks_esc_menu_abandon(self):
+        """菜单盖住 HUD 时 in_team() 会是假 —— 不能因此就当成"已经到能重开的界面"直接返回。"""
+        clicks = []
+        state = {'menu': True}
+        self.task.in_team = lambda *a, **k: False
+        self.task.find_esc_menu = lambda **kw: state['menu']
+        self.task.find_start_interface = lambda **kw: not state['menu']
+        self.task.find_action_dialog_continue = lambda **kw: None
+        self.task.find_action_dialog_retreat = lambda **kw: None
+        self.task.find_result_again_btn = lambda **kw: None
+        self.task.find_center_confirm = lambda **kw: None
+        self.task.ocr = lambda **kw: []
+
+        def click(coord, **kw):
+            clicks.append(coord)
+            state['menu'] = False
+
+        self.task.click_ui_coord = click
+        self.assertTrue(self.task.give_up_mission(timeout=1))
+        self.assertEqual(clicks, [COORD.ESC_GIVEUP], '要点一次「放弃挑战」')
 
     def test_result_screen_resets_walk_flag(self):
         """结算界面出现 = 这一局结束：下一局（点「再次进行」）要重新判图 + 走位。"""

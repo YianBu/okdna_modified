@@ -434,8 +434,10 @@ class CommissionsTask(BaseDNATask):
         下一轮再认；最后再等一会儿界面到位就返回 —— 不抛异常，也不死等 60 秒。
         """
         def is_mission_start_iface():
+            # 注意别把「局内 ESC 菜单」算进来：菜单盖住 HUD 时 in_team() 会是假，
+            # 那样会在菜单刚打开时就当成"已经到能重开的界面"直接返回，永远不去点「放弃挑战」。
             return (self.find_start_interface() or self.find_action_dialog_continue()
-                    or self.find_esc_menu() or self.find_result_again_btn())
+                    or self.find_result_again_btn())
 
         action_timeout = self.action_timeout if timeout == 0 else timeout
         deadline = time.time() + max(30, action_timeout * 2)

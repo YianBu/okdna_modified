@@ -117,7 +117,7 @@ class AutoMijinTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.icon = FluentIcon.FLAG
         self.name = "自动迷津"
         self.description = "全自动"
-        self.group_name = "全自动（特殊）"
+        self.group_name = "全自动（活动）"
         self.group_icon = FluentIcon.GAME
 
         # 一轮打太久的兜底：超时就主动退本、重开一轮。

@@ -157,7 +157,7 @@ class AutoHuntMoonTask(DNAOneTimeTask, CommissionsTask, BaseCombatTask):
         self.icon = FluentIcon.FLAG
         self.name = "自动狩月人之阶"
         self.description = "不凹分，仅刷本"
-        self.group_name = "全自动（特殊）"
+        self.group_name = "全自动（活动）"
         self.group_icon = FluentIcon.GAME
 
         # 这个模式没有轮次，也没有「挂机模式」那套移动/复位配置：只有打几次 + 超时重启

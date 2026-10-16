@@ -159,7 +159,7 @@ msgstr ""
 msgid "全自动（日常）"
 msgstr ""
 
-msgid "全自动（特殊）"
+msgid "全自动（活动）"
 msgstr ""
 
 msgid ""

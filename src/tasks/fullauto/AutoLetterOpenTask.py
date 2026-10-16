@@ -137,7 +137,7 @@ class AutoLetterOpenTask(DungeonActionMixin, AutoExpulsion):
         self.icon = FluentIcon.FLAG
         self.name = "自动开密函"
         self.description = "全自动"
-        self.group_name = "全自动（特殊）"
+        self.group_name = "全自动（活动）"
         self.group_icon = FluentIcon.GAME
 
         self.default_config.update({

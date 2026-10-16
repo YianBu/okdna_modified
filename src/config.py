@@ -210,14 +210,14 @@ config = {
         ["src.tasks.fullauto.Auto65ArtifactTask_Fast", "Auto65ArtifactTask_Fast"],
         ["src.tasks.AutoExpulsion", "AutoExpulsion"],
         ["src.tasks.fullauto.AutoExploration_Fast", "AutoExploration_Fast"],
-        # 全自动（休闲）
-        ["src.tasks.fullauto.AutoFishTask_Leisure", "AutoFishTask_Leisure"],
-        ["src.tasks.fullauto.AutoFishTask", "AutoFishTask"],
-        # 全自动（特殊）
+        # 全自动（活动）
         ["src.tasks.fullauto.AutoMijinTask", "AutoMijinTask"],
         ["src.tasks.fullauto.AutoLetterOpenTask", "AutoLetterOpenTask"],
         ["src.tasks.fullauto.AutoTheatreTask", "AutoTheatreTask"],
         ["src.tasks.fullauto.AutoHuntMoonTask", "AutoHuntMoonTask"],
+        # 全自动（休闲）
+        ["src.tasks.fullauto.AutoFishTask_Leisure", "AutoFishTask_Leisure"],
+        ["src.tasks.fullauto.AutoFishTask", "AutoFishTask"],
         ["src.tasks.AutoSkill", "AutoSkill"],
         ["src.tasks.AutoGeneral", "AutoGeneral"],
         ["src.tasks.AutoDefence", "AutoDefence"],

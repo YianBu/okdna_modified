@@ -263,6 +263,33 @@
             "file_name": "images/12.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "license": 0,
+            "url": null,
+            "file_name": "images/13_fish_prompt_cast.png",
+            "height": 1080,
+            "width": 1920,
+            "date_captured": null,
+            "id": 48
+        },
+        {
+            "license": 0,
+            "url": null,
+            "file_name": "images/14_fish_prompt_auto.png",
+            "height": 1080,
+            "width": 1920,
+            "date_captured": null,
+            "id": 49
+        },
+        {
+            "license": 0,
+            "url": null,
+            "file_name": "images/15_fish_caught.png",
+            "height": 1080,
+            "width": 1920,
+            "date_captured": null,
+            "id": 50
         }
     ],
     "annotations": [
@@ -1132,6 +1159,51 @@
             "iscrowd": 0,
             "ignore": 0,
             "segmentation": []
+        },
+        {
+            "id": 65,
+            "image_id": 48,
+            "category_id": 65,
+            "bbox": [
+                1631,
+                837,
+                124,
+                112
+            ],
+            "area": 13888,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        },
+        {
+            "id": 66,
+            "image_id": 49,
+            "category_id": 66,
+            "bbox": [
+                1632,
+                835,
+                106,
+                114
+            ],
+            "area": 12084,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        },
+        {
+            "id": 67,
+            "image_id": 50,
+            "category_id": 67,
+            "bbox": [
+                868,
+                160,
+                186,
+                64
+            ],
+            "area": 11904,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
         }
     ],
     "categories": [
@@ -1438,6 +1510,21 @@
         {
             "id": 64,
             "name": "syr_hud_restart",
+            "supercategory": ""
+        },
+        {
+            "id": 65,
+            "name": "fish_prompt_cast",
+            "supercategory": ""
+        },
+        {
+            "id": 66,
+            "name": "fish_prompt_auto",
+            "supercategory": ""
+        },
+        {
+            "id": 67,
+            "name": "fish_caught",
             "supercategory": ""
         }
     ]
